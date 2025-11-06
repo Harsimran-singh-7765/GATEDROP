@@ -8,21 +8,21 @@ const router = Router();
 
 /**
  * @route   POST /api/jobs
- * @desc    Create a new job post
+ * @desc    Create a new job post (Status is now 'pending_bids')
  * @access  Private
  */
 router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const { 
-      pickupLocation, 
-      dropLocation, 
+    const {
+      pickupLocation,
+      dropLocation,
       title,
       description,
-      fee, 
+      fee,
       paymentId,
-      jobDeadline // <-- FIX: YEH NAYA FIELD RECEIVE KIYA
+      jobDeadline
     } = req.body;
-    
+
     const requesterId = req.user!.userId;
 
     const requester = await User.findById(requesterId).select('name phone');
@@ -37,10 +37,10 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       title,
       description,
       fee,
-      paymentId, 
-      jobDeadline, // <-- FIX: YEH FIELD MODEL KO PASS KIYA
-      paymentStatus: 'successful', 
-      status: 'pending', 
+      paymentId,
+      jobDeadline,
+      paymentStatus: 'successful',
+      status: 'pending_bids', // <-- UPDATED status
       requesterDetailsCache: {
         name: requester.name,
         phone: requester.phone,
@@ -48,7 +48,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     });
 
     await newJob.save();
-    
+
+    // Sabko batao naya job aaya hai
     req.io!.emit('new_job_available', newJob);
 
     res.status(201).json(newJob);
@@ -59,20 +60,20 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-// --- Specific GET routes must come BEFORE dynamic /:id ---
+// --- UPDATED GET ROUTES ---
 
 /**
  * @route   GET /api/jobs/available
- * @desc    Get all available jobs for runners
+ * @desc    Get all available jobs (Now 'pending_bids')
  * @access  Private
  */
 router.get('/available', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const availableJobs = await Job.find({ 
-      status: 'pending', 
+    const availableJobs = await Job.find({
+      status: 'pending_bids', // <-- UPDATED status
       paymentStatus: 'successful',
-      requesterId: { $ne: req.user!.userId } 
-    }).sort({ createdAt: -1 }); 
+      requesterId: { $ne: req.user!.userId }
+    }).sort({ createdAt: -1 });
 
     res.json(availableJobs);
   } catch (error: any) {
@@ -88,8 +89,8 @@ router.get('/available', authMiddleware, async (req: AuthRequest, res) => {
  */
 router.get('/my-posted', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const myJobs = await Job.find({ 
-      requesterId: req.user!.userId 
+    const myJobs = await Job.find({
+      requesterId: req.user!.userId
     }).sort({ createdAt: -1 });
 
     res.json(myJobs);
@@ -106,8 +107,8 @@ router.get('/my-posted', authMiddleware, async (req: AuthRequest, res) => {
  */
 router.get('/my-runner', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const myRunningJobs = await Job.find({ 
-      runnerId: req.user!.userId 
+    const myRunningJobs = await Job.find({
+      runnerId: req.user!.userId
     }).sort({ createdAt: -1 });
 
     res.json(myRunningJobs);
@@ -140,53 +141,240 @@ router.get('/history', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
+// --- NEW BIDDING & RATING ROUTES ---
+
 /**
- * @route   POST /api/jobs/:id/accept
- * @desc    Accept a job as a runner
- * @access  Private
+ * @route   POST /api/jobs/:id/apply
+ * @desc    Runner applies for a job
+ * @access  Private (Runner)
  */
-router.post('/:id/accept', authMiddleware, async (req: AuthRequest, res) => {
+router.post('/:id/apply', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const jobId = req.params.id;
     const runnerId = req.user!.userId;
 
-    const runner = await User.findById(runnerId).select('name phone');
-    if (!runner) {
-      return res.status(404).json({ message: 'Runner user not found' });
-    }
-    
     const job = await Job.findById(jobId);
     if (!job) {
       return res.status(404).json({ message: 'Job not found' });
     }
-
-    if (job.status !== 'pending') {
-      return res.status(400).json({ message: 'Job is no longer available' });
+    if (job.status !== 'pending_bids') {
+      return res.status(400).json({ message: 'This job is no longer accepting applications' });
     }
-
     if (job.requesterId.toString() === runnerId) {
-      return res.status(400).json({ message: 'You cannot accept your own job' });
+      return res.status(400).json({ message: 'You cannot apply to your own job' });
+    }
+    if (job.applicants.includes(new mongoose.Types.ObjectId(runnerId))) {
+      return res.status(400).json({ message: 'You have already applied' });
     }
 
+    // Add runner to applicants list
+    job.applicants.push(new mongoose.Types.ObjectId(runnerId));
+    await job.save();
+
+    // Get applicant data to send to Requester
+    const runner = await User.findById(runnerId).select('name reportCount totalRatingStars totalRatingCount');
+
+    // Send update to Requester (room = jobId)
+    req.io!.to(jobId).emit('new_applicant', runner);
+
+    res.json({ message: 'Application successful' });
+
+  } catch (error: any) {
+    console.error('[POST /apply] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+/**
+ * @route   POST /api/jobs/:id/choose-runner
+ * @desc    Requester chooses a runner from applicants
+ * @access  Private (Requester)
+ */
+router.post('/:id/choose-runner', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const jobId = req.params.id;
+    const requesterId = req.user!.userId;
+    const { runnerId } = req.body; // Requester sends the ID of the runner they chose
+
+    if (!runnerId) {
+      return res.status(400).json({ message: 'Runner ID is required' });
+    }
+
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+    if (job.requesterId.toString() !== requesterId) {
+      return res.status(403).json({ message: 'You are not authorized to manage this job' });
+    }
+    if (job.status !== 'pending_bids') {
+      return res.status(400).json({ message: 'Job is not pending bids' });
+    }
+
+    // Check if the chosen runner actually applied
+    const hasApplied = job.applicants.some(appId => appId.toString() === runnerId);
+    if (!hasApplied) {
+      return res.status(400).json({ message: 'This runner did not apply for the job' });
+    }
+
+    const runner = await User.findById(runnerId).select('name phone');
+    if (!runner) {
+      return res.status(404).json({ message: 'Chosen runner not found' });
+    }
+
+    // Assign job
     job.runnerId = new mongoose.Types.ObjectId(runnerId);
     job.status = 'accepted';
     job.runnerDetailsCache = {
       name: runner.name,
       phone: runner.phone
     };
+    job.applicants = []; // Clear applicants list
 
     await job.save();
 
+    // Tell everyone this job is now 'accepted'
     req.io!.to(jobId).emit('job_updated', job);
+    // Tell the public feed this job is gone
     req.io!.emit('job_taken', { _id: jobId });
 
     res.json(job);
 
   } catch (error: any) {
-    console.error('[POST /api/jobs/:id/accept] Error:', error);
+    console.error('[POST /choose-runner] Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+/**
+ * @route   POST /api/jobs/:id/rate
+ * @desc    Requester rates the runner after job completion
+ * @access  Private (Requester)
+ */
+router.post('/:id/rate', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const jobId = req.params.id;
+    const requesterId = req.user!.userId;
+    const { rating } = req.body; // Rating (1-5)
+
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+    }
+
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+    if (job.requesterId.toString() !== requesterId) {
+      return res.status(403).json({ message: 'You are not the requester of this job' });
+    }
+    if (job.status !== 'completed') {
+      return res.status(400).json({ message: 'Job must be completed to be rated' });
+    }
+    if (job.ratingGiven) {
+      return res.status(400).json({ message: 'You have already rated this job' });
+    }
+    if (!job.runnerId) {
+      return res.status(400).json({ message: 'Cannot rate, job has no runner.' });
+    }
+
+    const runner = await User.findById(job.runnerId);
+    if (!runner) {
+      return res.status(404).json({ message: 'Runner not found' });
+    }
+
+    // Update runner's rating
+    runner.totalRatingStars += rating;
+    runner.totalRatingCount += 1;
+    await runner.save();
+
+    // Mark job as rated
+    job.ratingGiven = true;
+    await job.save();
+
+    res.json({ message: 'Thank you for your feedback!' });
+
+  } catch (error: any) {
+    console.error('[POST /rate] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+/**
+ * @route   POST /api/jobs/:id/cancel-bid
+ * @desc    Runner cancels their application
+ * @access  Private (Runner)
+ */
+router.post('/:id/cancel-bid', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const jobId = req.params.id;
+    const runnerId = req.user!.userId;
+
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+    if (job.status !== 'pending_bids') {
+      return res.status(400).json({ message: 'Cannot cancel bid, job is no longer pending' });
+    }
+
+    // Remove runner from applicants list
+    job.applicants = job.applicants.filter(appId => appId.toString() !== runnerId);
+    await job.save();
+
+    // Tell Requester this applicant is gone
+    req.io!.to(jobId).emit('applicant_removed', { runnerId });
+
+    res.json({ message: 'Application cancelled' });
+
+  } catch (error: any) {
+    console.error('[POST /cancel-bid] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+/**
+ * @route   POST /api/jobs/:id/cancel-delivery
+ * @desc    Runner cancels an accepted delivery
+ * @access  Private (Runner)
+ */
+router.post('/:id/cancel-delivery', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const jobId = req.params.id;
+    const runnerId = req.user!.userId;
+
+    const job = await Job.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ message: 'Job not found' });
+    }
+    if (job.runnerId?.toString() !== runnerId) {
+      return res.status(403).json({ message: 'You are not the runner for this job' });
+    }
+    if (job.status !== 'accepted' && job.status !== 'picked_up') {
+      return res.status(400).json({ message: 'Job is not in a cancellable state' });
+    }
+
+    // Set job as cancelled
+    job.status = 'cancelled';
+
+    // (Optional: Add strike to runner logic here)
+    // (Optional: Refund Requester logic here, or reset job to 'pending_bids')
+
+    await job.save();
+
+    // Tell Requester the job was cancelled
+    req.io!.to(jobId).emit('job_updated', job);
+
+    res.json({ message: 'Delivery cancelled' });
+
+  } catch (error: any) {
+    console.error('[POST /cancel-delivery] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+
+// --- EXISTING ROUTES (No changes needed) ---
 
 /**
  * @route   PATCH /api/jobs/:id/status
@@ -195,7 +383,7 @@ router.post('/:id/accept', authMiddleware, async (req: AuthRequest, res) => {
  */
 router.patch('/:id/status', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const { status } = req.body; 
+    const { status } = req.body;
     const jobId = req.params.id;
     const runnerId = req.user!.userId;
 
@@ -213,10 +401,10 @@ router.patch('/:id/status', authMiddleware, async (req: AuthRequest, res) => {
     }
 
     if (status === 'picked_up' && job.status !== 'accepted') {
-       return res.status(400).json({ message: 'Job must be in "accepted" state to be picked up' });
+      return res.status(400).json({ message: 'Job must be in "accepted" state to be picked up' });
     }
     if (status === 'delivered_by_runner' && job.status !== 'picked_up') {
-       return res.status(400).json({ message: 'Job must be in "picked_up" state to be delivered' });
+      return res.status(400).json({ message: 'Job must be in "picked_up" state to be delivered' });
     }
 
     job.status = status;
@@ -226,8 +414,7 @@ router.patch('/:id/status', authMiddleware, async (req: AuthRequest, res) => {
 
     res.json(job);
 
-  } catch (error: any)
-{
+  } catch (error: any) {
     console.error('[PATCH /api/jobs/:id/status] Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -248,7 +435,7 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
     if (!job) {
       return res.status(404).json({ message: 'Job not found' });
     }
-    
+
     if (job.requesterId.toString() !== requesterId) {
       return res.status(403).json({ message: 'You are not the requester for this job' });
     }
@@ -257,12 +444,11 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ message: 'Job has not been marked as delivered by the runner yet' });
     }
 
-    // Pehle check karo ki runnerId hai ya nahi
     if (!job.runnerId) {
       return res.status(400).json({ message: 'Cannot confirm job: Runner ID is missing.' });
     }
     const runner = await User.findById(job.runnerId);
-    
+
     if (!runner) {
       return res.status(404).json({ message: 'Runner user not found. Cannot process payment.' });
     }
@@ -280,17 +466,14 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
     await runner.save();
     await requester.save();
 
-    // 1. Job status update (for status on pages)
-    req.io!.to(jobId).emit('job_updated', job); 
-
-    // 2. Wallet update (for DashboardLayout)
-    req.io!.emit('user_balance_updated', { 
-        userId: runner._id.toString(), 
-        newBalance: runner.walletBalance 
+    req.io!.to(jobId).emit('job_updated', job);
+    req.io!.emit('user_balance_updated', {
+      userId: runner._id.toString(),
+      newBalance: runner.walletBalance
     });
 
     console.log(`[Job ${jobId}] Confirmed! Paid ₹${job.fee} to runner ${runner.email}`);
-    res.json(job); 
+    res.json(job);
 
   } catch (error: any) {
     console.error('[POST /api/jobs/:id/confirm] Error:', error);
@@ -310,14 +493,21 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
     if (!job) {
       return res.status(404).json({ message: 'Job not found' });
     }
-    
+
+    // With the new bidding system, we need to populate applicants
+    if (job.status === 'pending_bids') {
+      await job.populate({
+        path: 'applicants',
+        select: 'name reportCount totalRatingStars totalRatingCount' // Sirf yeh data bhejo
+      });
+    }
+
     const isRequester = job.requesterId.toString() === req.user!.userId;
     const isRunner = job.runnerId?.toString() === req.user!.userId;
+    const isApplicant = job.applicants.some(app => (app as any)._id.toString() === req.user!.userId);
 
-    if (!isRequester && !isRunner) {
-      if (job.status !== 'pending') {
-         return res.status(403).json({ message: 'Not authorized to view this job' });
-      }
+    if (!isRequester && !isRunner && !isApplicant) {
+      return res.status(403).json({ message: 'Not authorized to view this job' });
     }
 
     res.json(job);
@@ -363,17 +553,19 @@ router.post('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
     }
 
     await runner.save();
-    
-    req.io!.to(jobId).emit('runner_reported', { 
-      reportCount: runner.reportCount, 
-      isBanned: runner.isBanned 
+
+    req.io!.to(jobId).emit('runner_reported', {
+      reportCount: runner.reportCount,
+      isBanned: runner.isBanned
     });
 
     console.log(`[Report] Runner ${runner.email} reported for job ${jobId}. Reason: ${reason}`);
-    res.json({ success: true, message: 'Report submitted', runnerStatus: {
-      reportCount: runner.reportCount,
-      isBanned: runner.isBanned
-    }});
+    res.json({
+      success: true, message: 'Report submitted', runnerStatus: {
+        reportCount: runner.reportCount,
+        isBanned: runner.isBanned
+      }
+    });
 
   } catch (error: any) {
     console.error('[POST /api/jobs/:id/report] Error:', error);

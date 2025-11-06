@@ -38,14 +38,14 @@ const OrderDetailsRunner = () => {
 
   // Socket listener effect
   useEffect(() => {
-    if (!socket || !id) return; 
+    if (!socket || !id) return;
 
     socket.emit('join_job_room', id);
     console.log(`[Socket] Runner joining room: ${id}`);
 
     const handleJobUpdate = (updatedJob: Job) => {
       console.log('[Socket] Runner received job update:', updatedJob);
-      setJob(updatedJob); 
+      setJob(updatedJob);
 
       if (updatedJob.status === 'completed') {
         toast({
@@ -64,7 +64,7 @@ const OrderDetailsRunner = () => {
 
   const loadJob = async () => {
     if (!token || !id) return;
-    
+
     try {
       setIsLoading(true);
       const data = await jobApi.getJobById(id, token);
@@ -124,7 +124,7 @@ const OrderDetailsRunner = () => {
       <Button variant="ghost" onClick={() => navigate(-1)} className="mb-4">
         ← Back
       </Button>
-      
+
       <Card>
         <CardHeader>
           <div className="flex justify-between items-start">

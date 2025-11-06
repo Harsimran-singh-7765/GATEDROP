@@ -5,9 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { jobApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, Package, Clock, IndianRupee, PlusCircle } from "lucide-react"; // <-- PlusCircle import
+import { MapPin, Package, Clock, IndianRupee, PlusCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+// --- UPDATED JOB INTERFACE ---
 interface Job {
   _id: string;
   pickupLocation: string;
@@ -18,8 +19,10 @@ interface Job {
   fee: number;
   status: string;
   createdAt: string;
-  requesterId: string; 
+  requesterId: string;
+  applicants: string[]; // <-- Array of user IDs who have applied
 }
+// --- END UPDATE ---
 
 const Jobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -32,10 +35,10 @@ const Jobs = () => {
     if (token) {
       loadJobs();
     }
-  }, [token]); 
+  }, [token]);
 
   useEffect(() => {
-    if (!socket || !user) return; 
+    if (!socket || !user) return;
 
     console.log("[Socket] Jobs.tsx setting up listeners...");
 
@@ -59,11 +62,11 @@ const Jobs = () => {
       socket.off('new_job_available', handleNewJob);
       socket.off('job_taken', handleJobTaken);
     };
-  }, [socket, user]); 
+  }, [socket, user]);
 
   const loadJobs = async () => {
     if (!token) return;
-    
+
     try {
       setIsLoading(true);
       const data = await jobApi.getAvailableJobs(token);
@@ -79,50 +82,62 @@ const Jobs = () => {
     }
   };
 
-  const handleAcceptJob = async (jobId: string) => {
-    if (!token) return;
+  // --- YEH HAI FIX (FUNCTION NAME AUR API CALL CHANGE HUA) ---
+  const handleApplyForJob = async (jobId: string) => {
+    if (!token || !socket) return; // Socket ko bhi check karein
 
     if (user?.isBanned) {
       toast({
         title: "Account Restricted",
-        description: "Your account has been banned due to reports. You cannot accept new jobs.",
+        description: "Your account has been banned. You cannot apply for new jobs.",
         variant: "destructive",
       });
       return;
     }
 
     try {
-      await jobApi.acceptJob(jobId, token);
+      // 'acceptJob' ki jagah 'applyForJob' use kiya
+      await jobApi.applyForJob(jobId, token);
       toast({
-        title: "Job accepted!",
-        description: "Check 'Current Jobs' to manage this delivery.",
+        title: "Application Sent!",
+        description: "The requester has been notified. Check 'Current Jobs' for status.",
       });
-      navigate("/current-jobs"); // <-- FIX: /my-runner-jobs se /current-jobs
+
+      // Socket room join karein
+      socket.emit('join_job_room', jobId);
+
+      // Local state update karke button ko "Applied" dikhayein
+      setJobs(prevJobs => prevJobs.map(job =>
+        job._id === jobId ? { ...job, applicants: [...job.applicants, user._id] } : job
+      ));
+
+      navigate("/current-jobs");
     } catch (error: any) {
       toast({
-        title: "Failed to accept job",
+        title: "Failed to apply",
         description: error.message,
         variant: "destructive",
       });
     }
   };
+  // --- END FIX ---
 
   if (isLoading) {
     return <div>Loading available jobs...</div>;
   }
 
+  // Helper function check karne ke liye ki user apply kar chuka hai
+  const hasApplied = (job: Job) => job.applicants.includes(user!._id);
+
   return (
     <div>
-      {/* --- YEH HAI FIX: HEADER AUR BUTTON --- */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">Available Jobs</h1>
-        {/* Desktop Button */}
         <Button className="hidden md:flex" onClick={() => navigate("/post-job")}>
           <PlusCircle className="h-4 w-4 mr-2" />
           Post a New Job
         </Button>
       </div>
-      {/* --- END FIX --- */}
 
       {user?.isBanned && (
         <Card className="mb-6 border-destructive">
@@ -133,7 +148,7 @@ const Jobs = () => {
           </CardContent>
         </Card>
       )}
-      
+
       {jobs.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-center text-muted-foreground">
@@ -152,7 +167,7 @@ const Jobs = () => {
                 <CardDescription>
                   Posted {new Date(job.createdAt).toLocaleDateString()}
                 </CardDescription>
-          </CardHeader>
+              </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-start gap-2 text-sm">
                   <MapPin className="h-4 w-4 text-primary mt-0.5" />
@@ -174,29 +189,31 @@ const Jobs = () => {
                     Deliver by {new Date(job.jobDeadline).toLocaleString()}
                   </div>
                 )}
+
+                {/* --- YEH HAI BUTTON LOGIC FIX --- */}
                 <Button
                   className="w-full"
-                  onClick={() => handleAcceptJob(job._id)}
-                  disabled={user?.isBanned}
+                  onClick={() => handleApplyForJob(job._id)} // <-- Naya function
+                  disabled={user?.isBanned || hasApplied(job)} // Disable agar applied hai
                 >
-                  Accept Job
+                  {hasApplied(job) ? "Applied" : "Apply for Job"}
                 </Button>
+                {/* --- END FIX --- */}
+
               </CardContent>
             </Card>
           ))}
         </div>
       )}
 
-      {/* --- YEH HAI FIX: MOBILE FLOATING BUTTON --- */}
-      {/* 'bottom-20' isliye taaki yeh bottom nav ke upar aaye (h-16 nav + 1rem padding) */}
-      <Button 
-        className="md:hidden fixed bottom-20 right-4 h-14 w-14 rounded-full shadow-lg z-30" 
+      {/* MOBILE FLOATING BUTTON */}
+      <Button
+        className="md:hidden fixed bottom-20 right-4 h-14 w-14 rounded-full shadow-lg z-30"
         size="icon"
         onClick={() => navigate("/post-job")}
       >
-        <PlusCircle className="h-14- w-14" />
+        <PlusCircle className="h-7 w-7" />
       </Button>
-      {/* --- END FIX --- */}
     </div>
   );
 };

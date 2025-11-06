@@ -9,128 +9,144 @@ interface ApiOptions {
   token?: string;
 }
 
+// Re-usable apiCall function
 async function apiCall(endpoint: string, options: ApiOptions = {}) {
   const { method = 'GET', body, token } = options;
-  
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  
+
   const config: RequestInit = {
     method,
     headers,
   };
-  
+
   if (body) {
     config.body = JSON.stringify(body);
   }
-  
+
   const response = await fetch(`${API_URL}${endpoint}`, config);
-  
+
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'API request failed');
+    // Try to parse error message, otherwise throw generic error
+    try {
+      const error = await response.json();
+      throw new Error(error.message || 'API request failed');
+    } catch (e) {
+      throw new Error(`API request failed with status ${response.status}`);
+    }
   }
-  
-  return response.json();
+
+  // Handle 204 No Content (for DELETE) or other non-json responses
+  if (response.status === 204) {
+    return null;
+  }
+
+  // Try to parse JSON, if it fails, return a generic success
+  try {
+    return await response.json();
+  } catch (e) {
+    return { success: true, message: 'Operation successful' };
+  }
 }
 
 // --- Authentication APIs ---
 export const authApi = {
   login: (email: string, password: string) =>
     apiCall('/api/auth/login', { method: 'POST', body: { email, password } }),
-  
+
+  // For 2-Phase Signup
+  requestOtp: (email: string) =>
+    apiCall('/api/auth/request-otp', { method: 'POST', body: { email } }),
+
   signup: (data: any) =>
     apiCall('/api/auth/signup', { method: 'POST', body: data }),
-  
+
   getMe: (token: string) =>
     apiCall('/api/auth/me', { token }),
 };
 
-// --- Job APIs ---
+// --- Job APIs (HEAVILY UPDATED) ---
 export const jobApi = {
-  // Get all available jobs (status: pending, paymentStatus: successful)
   getAvailableJobs: (token: string) =>
     apiCall('/api/jobs/available', { token }),
-  
-  // Get jobs posted by current user (as Requester)
+
   getMyPostedJobs: (token: string) =>
     apiCall('/api/jobs/my-posted', { token }),
-  
-  // Get jobs accepted by current user (as Runner)
+
   getMyRunnerJobs: (token: string) =>
     apiCall('/api/jobs/my-runner', { token }),
-  
-  // Get job history (status: completed or cancelled)
+
   getJobHistory: (token: string) =>
     apiCall('/api/jobs/history', { token }),
-  
-  // Get single job details
+
   getJobById: (jobId: string, token: string) =>
     apiCall(`/api/jobs/${jobId}`, { token }),
-  
-  // Create new job
+
   createJob: (jobData: any, token: string) =>
     apiCall('/api/jobs', { method: 'POST', body: jobData, token }),
-  
-  // Accept job as Runner
-  acceptJob: (jobId: string, token: string) =>
-    apiCall(`/api/jobs/${jobId}/accept`, { method: 'POST', token }),
-  
-  // Update job status
+
+  // --- NEW BIDDING FLOW ---
+  applyForJob: (jobId: string, token: string) => // Renamed from acceptJob
+    apiCall(`/api/jobs/${jobId}/apply`, { method: 'POST', token }),
+
+  chooseRunner: (jobId: string, runnerId: string, token: string) =>
+    apiCall(`/api/jobs/${jobId}/choose-runner`, { method: 'POST', body: { runnerId }, token }),
+
+  rateRunner: (jobId: string, rating: number, token: string) =>
+    apiCall(`/api/jobs/${jobId}/rate`, { method: 'POST', body: { rating }, token }),
+
+  // --- NEW CANCELLATION FLOW ---
+  cancelBid: (jobId: string, token: string) =>
+    apiCall(`/api/jobs/${jobId}/cancel-bid`, { method: 'POST', token }),
+
+  cancelDelivery: (jobId: string, token: string) =>
+    apiCall(`/api/jobs/${jobId}/cancel-delivery`, { method: 'POST', token }),
+  // --- END NEW ROUTES ---
+
   updateJobStatus: (jobId: string, status: string, token: string) =>
     apiCall(`/api/jobs/${jobId}/status`, { method: 'PATCH', body: { status }, token }),
-  
-  // Confirm delivery (Requester action - completes job and pays runner)
+
   confirmDelivery: (jobId: string, token: string) =>
     apiCall(`/api/jobs/${jobId}/confirm`, { method: 'POST', token }),
-  
-  // Report runner
+
   reportRunner: (jobId: string, reason: string, token: string) =>
     apiCall(`/api/jobs/${jobId}/report`, { method: 'POST', body: { reason }, token }),
 };
 
 // --- Payment APIs ---
 export const paymentApi = {
-  // Create payment order
   createPaymentOrder: (amount: number, token: string) =>
     apiCall('/api/payment/create-order', { method: 'POST', body: { amount }, token }),
-  
-  // Verify payment
+
   verifyPayment: (paymentData: any, token: string) =>
     apiCall('/api/payment/verify', { method: 'POST', body: paymentData, token }),
 };
 
 // --- Wallet APIs ---
 export const walletApi = {
-  // Get wallet balance
-  // NOTE: We rely on the /api/auth/me response for balance, but keeping this for completeness
   getBalance: (token: string) =>
     apiCall('/api/wallet/balance', { token }),
-  
-  // Request cashout
+
   requestCashout: (amount: number, token: string) =>
     apiCall('/api/wallet/cashout', { method: 'POST', body: { amount }, token }),
 };
 
 // --- User APIs ---
 export const userApi = {
-  // Update profile
   updateProfile: (data: any, token: string) =>
     apiCall('/api/user/profile', { method: 'PATCH', body: data, token }),
-  
-  // Upload profile image
-  // This uses a direct fetch because apiCall stringifies the FormData, which we don't want
+
   uploadProfileImage: (formData: FormData, token: string) => {
     return fetch(`${API_URL}/api/user/profile-image`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
-        // NOTE: Do not set 'Content-Type': 'application/json' here for FormData
       },
       body: formData,
     }).then(res => res.json());

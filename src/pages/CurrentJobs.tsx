@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { jobApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, Phone, User, Package } from "lucide-react";
+import { MapPin, Phone, User, Package, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // <-- Tabs import karein
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Job {
   _id: string;
@@ -20,50 +20,75 @@ interface Job {
   runnerDetailsCache?: { name: string; phone: string; };
   requesterDetailsCache?: { name: string; phone: string; };
   createdAt: string;
+  applicants: string[];
+  runnerId?: string;
 }
 
 const CurrentJobs = () => {
   const [postedJobs, setPostedJobs] = useState<Job[]>([]);
   const [runnerJobs, setRunnerJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { token, socket } = useAuth(); 
+  const { token, socket, user } = useAuth();
   const { toast } = useToast();
-  
+
   useEffect(() => {
     if (token) {
       loadJobs();
     }
   }, [token]);
 
-  // Socket listener (ab yeh dono lists ko update karega)
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !user) return;
 
     console.log("[Socket] CurrentJobs setting up listeners...");
 
     const handleJobUpdate = (updatedJob: Job) => {
       console.log("[Socket] CurrentJobs received update for:", updatedJob._id);
-      
+
       const isCompleted = updatedJob.status === 'completed' || updatedJob.status === 'cancelled';
-      
+      const amITheRunner = updatedJob.runnerId === user._id;
+      const amITheRequester = updatedJob.requesterId === user._id; // <-- Naya check
+
+      // Runner Notification Logic
+      if (updatedJob.status === 'accepted' && amITheRunner) {
+        toast({
+          title: "You've been chosen! 🎉",
+          description: `You were selected for the job: "${updatedJob.title}"`,
+        });
+      }
+
       // Posted jobs ko update karo
-      setPostedJobs(prevJobs => 
-        isCompleted
+      setPostedJobs(prevJobs =>
+        isCompleted && amITheRequester // <-- Only remove if I'm the requester
           ? prevJobs.filter(job => job._id !== updatedJob._id)
           : prevJobs.map(job => job._id === updatedJob._id ? updatedJob : job)
       );
-      
+
       // Runner jobs ko update karo
-      setRunnerJobs(prevJobs => 
-        isCompleted
-          ? prevJobs.filter(job => job._id !== updatedJob._id)
-          : prevJobs.map(job => job._id === updatedJob._id ? updatedJob : job)
-      );
+      setRunnerJobs(prevJobs => {
+        if (isCompleted && amITheRunner) { // <-- Only remove if I'm the runner
+          return prevJobs.filter(job => job._id !== updatedJob._id);
+        }
+        if (amITheRunner) {
+          const jobExists = prevJobs.some(job => job._id === updatedJob._id);
+          if (jobExists) {
+            return prevJobs.map(job => job._id === updatedJob._id ? updatedJob : job);
+          } else if (updatedJob.status === 'accepted' && !isCompleted) { // Only add if accepted and not completed/cancelled
+            return [updatedJob, ...prevJobs];
+          }
+        }
+        // If I'm not the runner, and the job status is accepted, it means someone else was chosen
+        // So, remove it if it's currently in my applied list
+        if (updatedJob.status === 'accepted' && !amITheRunner) {
+          return prevJobs.filter(job => job._id !== updatedJob._id);
+        }
+        return prevJobs; // Default, no change
+      });
     };
 
-    // Dono active jobs ke rooms join karo
+    // Apne sabhi active/applied jobs ke rooms join karo
     [...postedJobs, ...runnerJobs].forEach(job => {
-      if (job && job._id) { // Safety check
+      if (job && job._id) {
         socket.emit('join_job_room', job._id);
       }
     });
@@ -73,35 +98,35 @@ const CurrentJobs = () => {
     return () => {
       socket.off('job_updated', handleJobUpdate);
     };
-  }, [socket, postedJobs, runnerJobs]);
+  }, [socket, user, postedJobs, runnerJobs, toast]);
 
   const loadJobs = async () => {
     if (!token) return;
-    
+
     try {
       setIsLoading(true);
-      // Dono lists ko ek saath fetch karo
       const [postedData, runnerData] = await Promise.all([
         jobApi.getMyPostedJobs(token),
         jobApi.getMyRunnerJobs(token)
       ]);
-      
+
       // Active "Posted" jobs
       setPostedJobs(
-        postedData.filter(job => 
+        postedData.filter(job =>
           job.status !== 'completed' && job.status !== 'cancelled'
         )
       );
-      
-      // Active "Runner" jobs
+
+      // Active "Runner" jobs (Applied ya Accepted)
       setRunnerJobs(
-        runnerData.filter(job => 
-          job.status === 'accepted' || 
-          job.status === 'picked_up' || 
+        runnerData.filter(job =>
+          job.status === 'pending_bids' ||
+          job.status === 'accepted' ||
+          job.status === 'picked_up' ||
           job.status === 'delivered_by_runner'
         )
       );
-      
+
     } catch (error: any) {
       toast({
         title: "Error loading jobs",
@@ -120,13 +145,13 @@ const CurrentJobs = () => {
   return (
     <div>
       <h1 className="text-3xl font-bold mb-6">Current Jobs</h1>
-      
+
       <Tabs defaultValue="requester" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="requester">As Requester</TabsTrigger>
           <TabsTrigger value="runner">As Runner</TabsTrigger>
         </TabsList>
-        
+
         {/* === TAB 1: AS REQUESTER === */}
         <TabsContent value="requester" className="mt-6">
           {postedJobs.length === 0 ? (
@@ -139,13 +164,13 @@ const CurrentJobs = () => {
             <RequesterJobsList jobs={postedJobs} />
           )}
         </TabsContent>
-        
+
         {/* === TAB 2: AS RUNNER === */}
         <TabsContent value="runner" className="mt-6">
           {runnerJobs.length === 0 ? (
             <Card>
               <CardContent className="pt-6 text-center text-muted-foreground">
-                You have no active deliveries.
+                You have no active or applied jobs.
               </CardContent>
             </Card>
           ) : (
@@ -157,12 +182,12 @@ const CurrentJobs = () => {
   );
 };
 
-// --- Helper Component: Requester Jobs List ---
+// --- Helper Component: Requester Jobs List (FIXED NAVIGATION) ---
 const RequesterJobsList = ({ jobs }: { jobs: Job[] }) => {
   const navigate = useNavigate();
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
-      pending: { label: "Waiting for Runner", variant: "secondary" },
+      pending_bids: { label: "Waiting for Applicants", variant: "secondary" },
       accepted: { label: "Runner Assigned", variant: "default" },
       picked_up: { label: "Picked Up", variant: "default" },
       delivered_by_runner: { label: "Awaiting Confirmation", variant: "outline" },
@@ -213,12 +238,32 @@ const RequesterJobsList = ({ jobs }: { jobs: Job[] }) => {
   );
 };
 
-// --- Helper Component: Runner Jobs List ---
+// --- Helper Component: Runner Jobs List (FIXED NAVIGATION) ---
 const RunnerJobsList = ({ jobs }: { jobs: Job[] }) => {
   const navigate = useNavigate();
+  const { token, toast } = useAuth();
+
+  const handleCancelBid = async (jobId: string) => {
+    if (!token) return;
+    try {
+      await jobApi.cancelBid(jobId, token);
+      toast({
+        title: "Application Cancelled",
+        description: "Your application has been withdrawn.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Failed to cancel bid",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
-      accepted: { label: "Accepted - New!", variant: "default" },
+      pending_bids: { label: "Applied", variant: "secondary" },
+      accepted: { label: "Accepted", variant: "default" },
       picked_up: { label: "Picked Up", variant: "default" },
       delivered_by_runner: { label: "Waiting for Confirmation", variant: "outline" },
     };
@@ -246,7 +291,7 @@ const RunnerJobsList = ({ jobs }: { jobs: Job[] }) => {
                 {job.pickupLocation} → {job.dropLocation}
               </p>
             </div>
-            {job.requesterDetailsCache && ( 
+            {job.requesterDetailsCache && (
               <div className="bg-muted p-3 rounded-md space-y-2">
                 <div className="flex items-center gap-2 text-sm">
                   <User className="h-4 w-4" />
@@ -258,9 +303,26 @@ const RunnerJobsList = ({ jobs }: { jobs: Job[] }) => {
                 </div>
               </div>
             )}
-            <Button className="w-full" onClick={() => navigate(`/order/${job._id}/runner`)}>
-              Manage Delivery
-            </Button>
+
+            {job.status === 'pending_bids' ? (
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={() => handleCancelBid(job._id)}
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                Cancel Application
+              </Button>
+            ) : (
+              // FIX: Runner ko hamesha /order/:id/runner route par bhejo
+              <Button
+                className="w-full"
+                onClick={() => navigate(`/order/${job._id}/runner`)}
+              >
+                Manage Delivery
+              </Button>
+            )}
+
           </CardContent>
         </Card>
       ))}
