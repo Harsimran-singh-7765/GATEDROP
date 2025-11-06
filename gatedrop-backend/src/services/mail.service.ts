@@ -79,8 +79,19 @@ export const sendOtpEmail = async (recipientEmail: string, otpCode: string): Pro
     await request;
     console.log(`[Mailjet] OTP sent successfully to ${recipientEmail}`);
 
-  } catch (error) {
-    console.error(`[Mailjet] Failed to send OTP email to ${recipientEmail}. Status: ${error.statusCode || 'N/A'}`);
+  } catch (error: unknown) { // <-- 1. 'error' ko 'unknown' type diya
+    
+    // --- 2. YEH HAI TYPEGUARD FIX ---
+    // Hum check karenge ki 'error' ek object hai aur usmein 'statusCode' hai ya nahi
+    let statusCode = 'Unknown';
+    if (typeof error === 'object' && error !== null && 'statusCode' in error) {
+      // TypeScript ko bataya ki yeh 'any' type ka ho sakta hai taaki hum 'statusCode' access kar sakein
+      statusCode = String((error as any).statusCode);
+    }
+    
+    console.error(`[Mailjet] Failed to send OTP email to ${recipientEmail}. Status: ${statusCode}`);
+    // --- END FIX ---
+
     throw new Error("Email service temporarily unavailable. Please try again.");
   }
 };
