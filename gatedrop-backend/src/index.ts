@@ -6,13 +6,13 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import dbConnect from './dbConnect';
-import authRoutes from './routes/auth.routes';
 
-// Check if JWT_SECRET is loaded
-if (!process.env.JWT_SECRET) {
-  console.error("FATAL ERROR: JWT_SECRET is not defined in .env file");
-  process.exit(1);
-}
+// IMPORT YOUR ROUTES
+import authRoutes from './routes/auth.routes';
+import jobRoutes from './routes/job.routes';         // <-- ADD THIS
+import paymentRoutes from './routes/payment.routes'; // <-- ADD THIS
+
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,7 +23,10 @@ app.use(express.json());
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/jobs', jobRoutes);         // <-- ADD THIS
+app.use('/api/payment', paymentRoutes);  // <-- ADD THIS
 
+// ..
 // Test route
 app.get('/', (req, res) => {
   res.send('Gatedrop Backend API is running! 🚀');

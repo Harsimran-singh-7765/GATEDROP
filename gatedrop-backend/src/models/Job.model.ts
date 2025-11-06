@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
 
-// This is the structure for the cached details
 const UserDetailsCacheSchema = new mongoose.Schema({
   name: { type: String, required: true },
   phone: { type: String, required: true }
@@ -22,16 +21,12 @@ const JobSchema = new mongoose.Schema({
   itemDescription: { type: String, required: true },
   jobDeadline: { type: Date },
   fee: { type: Number, required: true, min: 30 },
-  
-  // Payment fields
   paymentId: { type: String, required: true },
   paymentStatus: { 
     type: String, 
     enum: ['pending', 'successful'], 
     default: 'pending' 
   },
-
-  // Status state machine
   status: {
     type: String,
     enum: [
@@ -44,11 +39,8 @@ const JobSchema = new mongoose.Schema({
     ],
     default: 'pending',
   },
-
-  // Cached data for quick lookups, as per your docs
   requesterDetailsCache: UserDetailsCacheSchema,
   runnerDetailsCache: UserDetailsCacheSchema,
-  
-}, { timestamps: true }); // Adds createdAt and updatedAt
+}, { timestamps: true });
 
 export default mongoose.models.Job || mongoose.model('Job', JobSchema);

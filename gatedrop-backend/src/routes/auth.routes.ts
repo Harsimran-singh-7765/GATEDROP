@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.model';
+// 1. ADD THIS IMPORT
+import authMiddleware, { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -32,7 +34,6 @@ router.post('/signup', async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone
-        // add any other fields frontend needs
       } 
     });
 
@@ -71,7 +72,6 @@ router.post('/login', async (req, res) => {
         email: user.email,
         phone: user.phone,
         isBanned: user.isBanned // Frontend needs this
-        // add any other fields
       } 
     });
 
@@ -79,5 +79,27 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+
+// 2. ADD THIS ENTIRE ROUTE
+/**
+ * @route   GET /api/auth/me
+ * @desc    Get current user data from token
+ * @access  Private
+ */
+router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    // authMiddleware already verified token and attached req.user
+    const user = await User.findById(req.user!.userId).select('-password');
+    if (!user) {
+      return res.status(4.04).json({ message: 'User not found' });
+    }
+    res.json(user);
+  } catch (error: any) {
+    console.error('[GET /api/auth/me] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 
 export default router;

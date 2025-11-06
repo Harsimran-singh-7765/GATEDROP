@@ -15,7 +15,7 @@ interface Job {
   itemDescription: string;
   fee: number;
   status: string;
-  requesterDetailsCache?: {
+  requesterDetailsCache?: { // Renamed from runnerDetailsCache
     name: string;
     phone: string;
   };
@@ -31,14 +31,24 @@ const MyRunnerJobs = () => {
 
   useEffect(() => {
     loadJobs();
-  }, []);
+  }, [token]); // <-- FIX: Added token dependency
 
   const loadJobs = async () => {
     if (!token) return;
     
     try {
       const data = await jobApi.getMyRunnerJobs(token);
-      setJobs(data);
+
+      // --- THE FIX ---
+      // Filter out completed or cancelled jobs
+      const activeJobs = data.filter(job => 
+        job.status === 'accepted' || 
+        job.status === 'picked_up' || 
+        job.status === 'delivered_by_runner'
+      );
+      // --- END FIX ---
+
+      setJobs(activeJobs); // Set only the active jobs
     } catch (error: any) {
       toast({
         title: "Error loading jobs",
@@ -52,7 +62,7 @@ const MyRunnerJobs = () => {
 
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
-      accepted: { label: "Accepted", variant: "default" },
+      accepted: { label: "Accepted - New!", variant: "default" },
       picked_up: { label: "Picked Up", variant: "default" },
       delivered_by_runner: { label: "Waiting for Confirmation", variant: "outline" },
     };
@@ -71,7 +81,7 @@ const MyRunnerJobs = () => {
       {jobs.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-center text-muted-foreground">
-            You haven't accepted any jobs yet. Check the Jobs tab!
+            You have no active deliveries. Check the "Jobs" tab to accept one!
           </CardContent>
         </Card>
       ) : (
@@ -97,7 +107,7 @@ const MyRunnerJobs = () => {
                     </p>
                   </div>
                 </div>
-                {job.requesterDetailsCache && (
+                {job.requesterDetailsCache && ( // <-- FIX: Changed to requesterDetailsCache
                   <div className="bg-muted p-3 rounded-md space-y-2">
                     <div className="flex items-center gap-2 text-sm">
                       <User className="h-4 w-4" />

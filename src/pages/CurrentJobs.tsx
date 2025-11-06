@@ -31,14 +31,22 @@ const CurrentJobs = () => {
 
   useEffect(() => {
     loadJobs();
-  }, []);
+  }, [token]); // <-- FIX: Added token dependency
 
   const loadJobs = async () => {
     if (!token) return;
     
     try {
       const data = await jobApi.getMyPostedJobs(token);
-      setJobs(data);
+      
+      // --- THE FIX ---
+      // Filter out completed or cancelled jobs
+      const activeJobs = data.filter(job => 
+        job.status !== 'completed' && job.status !== 'cancelled'
+      );
+      // --- END FIX ---
+
+      setJobs(activeJobs); // Set only the active jobs
     } catch (error: any) {
       toast({
         title: "Error loading jobs",
@@ -56,6 +64,8 @@ const CurrentJobs = () => {
       accepted: { label: "Runner Assigned", variant: "default" },
       picked_up: { label: "Picked Up", variant: "default" },
       delivered_by_runner: { label: "Awaiting Confirmation", variant: "outline" },
+      // Completed jobs are now filtered out, but this is good practice
+      completed: { label: "Completed", variant: "outline" } 
     };
     const config = statusConfig[status] || { label: status, variant: "secondary" };
     return <Badge variant={config.variant}>{config.label}</Badge>;
@@ -72,7 +82,7 @@ const CurrentJobs = () => {
       {jobs.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-center text-muted-foreground">
-            You haven't posted any jobs yet.
+            You have no active jobs.
           </CardContent>
         </Card>
       ) : (

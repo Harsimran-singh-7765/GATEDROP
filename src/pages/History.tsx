@@ -15,19 +15,19 @@ interface Job {
   fee: number;
   status: string;
   requesterId: string;
-  runnerId: string;
+  runnerId: string; // Make sure this is included in your Job type
   createdAt: string;
 }
 
 const History = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { token, user } = useAuth();
+  const { token, user } = useAuth(); // 'user' object should contain '_id'
   const { toast } = useToast();
 
   useEffect(() => {
     loadHistory();
-  }, []);
+  }, [token]); // <-- FIX: Added token dependency
 
   const loadHistory = async () => {
     if (!token) return;
@@ -46,8 +46,11 @@ const History = () => {
     }
   };
 
-  const asRequester = jobs.filter(job => job.requesterId === user?.id);
-  const asRunner = jobs.filter(job => job.runnerId === user?.id);
+  // --- THE FIX ---
+  // Filter using the user's MongoDB '_id', not 'id'
+  const asRequester = jobs.filter(job => job.requesterId === user?._id);
+  const asRunner = jobs.filter(job => job.runnerId === user?._id);
+  // --- END FIX ---
 
   const JobCard = ({ job, role }: { job: Job; role: "requester" | "runner" }) => (
     <Card key={job._id} className="hover:shadow-md transition-shadow">
@@ -57,7 +60,8 @@ const History = () => {
           <div className="flex flex-col items-end gap-1">
             <Badge variant="outline" className="bg-green-50 dark:bg-green-950">
               <CheckCircle className="h-3 w-3 mr-1" />
-              Completed
+              {/* Also handle cancelled jobs if they can appear here */}
+              {job.status === 'completed' ? 'Completed' : 'Cancelled'}
             </Badge>
             <span className="text-sm font-semibold text-primary">
               {role === "runner" ? `Earned ₹${job.fee}` : `Paid ₹${job.fee}`}
