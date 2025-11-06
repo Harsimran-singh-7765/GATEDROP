@@ -51,25 +51,30 @@ interface Job {
 }
 
 // --- Star Rating Component ---
+// --- Star Rating Component ---
 const StarRating = ({ rating, count }: { rating: number, count: number }) => {
   if (count === 0) {
     return <span className="text-sm text-muted-foreground">New Runner</span>;
   }
   const avgRating = (rating / count);
   const fullStars = Math.floor(avgRating);
-  const halfStar = avgRating - fullStars >= 0.5;
+  const halfStar = avgRating - fullStars >= 0.5; // This is a boolean
   const emptyStars = Math.max(0, 5 - fullStars - (halfStar ? 1 : 0));
 
   return (
     <div className="flex items-center gap-1">
       {[...Array(fullStars)].map((_, i) => <Star key={`full-${i}`} className="h-4 w-4 text-yellow-500" fill="currentColor" />)}
-      {halfStar && <StarHalf key={`half-${i}`} className="h-4 w-4 text-yellow-500" fill="currentColor" />}
+
+      {/* FIX: halfStar ko 1 ya 0 mein convert kiya */}
+      {[...Array(halfStar ? 1 : 0)].map((_, i) => <Star key={`half-${i}`} className="h-4 w-4 text-yellow-500" fill="currentColor" />)}
+
+      {/* FIX: emptyStars ke liye key ko alag kiya */}
       {[...Array(emptyStars)].map((_, i) => <Star key={`empty-${i}`} className="h-4 w-4 text-yellow-300/70" fill="currentColor" />)}
+
       <span className="text-xs text-muted-foreground ml-1">({count})</span>
     </div>
   );
 };
-
 
 const OrderDetailsRequester = () => {
   const { id } = useParams();
