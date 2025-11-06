@@ -10,9 +10,10 @@ import { MapPin, Package, Phone, User, CheckCircle } from "lucide-react";
 
 interface Job {
   _id: string;
+  title: string;
+  description: string;
   pickupLocation: string;
   dropLocation: string;
-  itemDescription: string;
   fee: number;
   status: string;
   requesterDetailsCache?: {
@@ -25,18 +26,47 @@ const OrderDetailsRunner = () => {
   const { id } = useParams();
   const [job, setJob] = useState<Job | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { token } = useAuth();
+  const { token, socket } = useAuth(); // <-- Get socket
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadJob();
-  }, [id]);
+    if (token && id) {
+      loadJob();
+    }
+  }, [id, token]);
+
+  // Socket listener effect
+  useEffect(() => {
+    if (!socket || !id) return; 
+
+    socket.emit('join_job_room', id);
+    console.log(`[Socket] Runner joining room: ${id}`);
+
+    const handleJobUpdate = (updatedJob: Job) => {
+      console.log('[Socket] Runner received job update:', updatedJob);
+      setJob(updatedJob); 
+
+      if (updatedJob.status === 'completed') {
+        toast({
+          title: "Job Completed!",
+          description: `₹${updatedJob.fee} has been added to your wallet.`,
+        });
+      }
+    };
+
+    socket.on('job_updated', handleJobUpdate);
+
+    return () => {
+      socket.off('job_updated', handleJobUpdate);
+    };
+  }, [id, socket]);
 
   const loadJob = async () => {
     if (!token || !id) return;
     
     try {
+      setIsLoading(true);
       const data = await jobApi.getJobById(id, token);
       setJob(data);
     } catch (error: any) {
@@ -59,7 +89,7 @@ const OrderDetailsRunner = () => {
         title: "Status updated",
         description: "Job status has been updated successfully.",
       });
-      loadJob();
+      // No loadJob() needed, socket will update
     } catch (error: any) {
       toast({
         title: "Failed to update status",
@@ -98,7 +128,7 @@ const OrderDetailsRunner = () => {
       <Card>
         <CardHeader>
           <div className="flex justify-between items-start">
-            <CardTitle className="text-2xl">Delivery Details</CardTitle>
+            <CardTitle className="text-2xl">{job.title}</CardTitle>
             <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
           </div>
         </CardHeader>
@@ -130,8 +160,8 @@ const OrderDetailsRunner = () => {
           </div>
 
           <div>
-            <p className="font-semibold mb-1">Item Description</p>
-            <p className="text-muted-foreground">{job.itemDescription}</p>
+            <p className="font-semibold mb-1">Full Description</p>
+            <p className="text-muted-foreground">{job.description}</p>
           </div>
 
           {job.requesterDetailsCache && (

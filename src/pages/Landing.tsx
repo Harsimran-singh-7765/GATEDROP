@@ -8,7 +8,18 @@ const Landing = () => {
       {/* Header */}
       <header className="border-b">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-primary">Gatedrop</h1>
+          
+          {/* --- LOGO UPDATED HERE (TEXT REMOVED, SIZE INCREASED) --- */}
+          <Link to="/" className="flex items-center">
+            {/* Aap is 'h-12' ko 'h-14' ya 'h-16' karke size adjust kar sakte hain 
+              h-12 = 48px
+              h-14 = 56px
+              h-16 = 64px
+            */}
+            <img src="/logo.png" alt="Gatedrop Logo" className="h-16 w-auto" /> 
+          </Link>
+          {/* --- END CHANGE --- */}
+
           <div className="space-x-2">
             <Link to="/login">
               <Button variant="ghost">Login</Button>
@@ -77,7 +88,15 @@ const Landing = () => {
 
       {/* Footer */}
       <footer className="border-t py-8">
-        <div className="container mx-auto px-4 text-center text-muted-foreground">
+        <div className="container mx-auto px-4 text-center text-muted-foreground flex flex-col items-center gap-4">
+          
+          {/* --- LOGO UPDATED HERE (TEXT REMOVED, SIZE ADJUSTED) --- */}
+          <Link to="/" className="flex items-center">
+            {/* Footer ke liye thoda chhota, jaise h-10 (40px) */}
+            <img src="/logo.png" alt="Gatedrop Logo" className="h-20 w-auto" /> 
+          </Link>
+          {/* --- END CHANGE --- */}
+
           <p>&copy; 2024 Gatedrop. All rights reserved.</p>
         </div>
       </footer>

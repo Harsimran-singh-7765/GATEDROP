@@ -12,7 +12,8 @@ interface Job {
   _id: string;
   pickupLocation: string;
   dropLocation: string;
-  itemDescription: string;
+  title: string;
+  description: string;
   fee: number;
   status: string;
   runnerDetailsCache?: {
@@ -25,28 +26,62 @@ interface Job {
 const CurrentJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { token } = useAuth();
+  const { token, socket } = useAuth(); // <-- Get socket
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  // Initial load
   useEffect(() => {
-    loadJobs();
-  }, [token]); // <-- FIX: Added token dependency
+    if (token) {
+      loadJobs();
+    }
+  }, [token]);
+
+  // Socket listener effect
+  useEffect(() => {
+    if (!socket || jobs.length === 0) return;
+
+    console.log("[Socket] CurrentJobs joining rooms for active jobs...");
+
+    const handleJobUpdate = (updatedJob: Job) => {
+      console.log("[Socket] CurrentJobs received update for:", updatedJob._id);
+      
+      if (updatedJob.status === 'completed' || updatedJob.status === 'cancelled') {
+        setJobs(prevJobs => prevJobs.filter(job => job._id !== updatedJob._id));
+      } else {
+        setJobs(prevJobs => 
+          prevJobs.map(job => 
+            job._id === updatedJob._id ? updatedJob : job
+          )
+        );
+      }
+    };
+
+    // Join a room for each active job
+    jobs.forEach(job => {
+      socket.emit('join_job_room', job._id);
+    });
+
+    socket.on('job_updated', handleJobUpdate);
+
+    // Cleanup
+    return () => {
+      socket.off('job_updated', handleJobUpdate);
+    };
+  }, [socket, jobs]); // <-- Runs when socket is ready or job list changes
 
   const loadJobs = async () => {
     if (!token) return;
     
     try {
+      setIsLoading(true);
       const data = await jobApi.getMyPostedJobs(token);
       
-      // --- THE FIX ---
-      // Filter out completed or cancelled jobs
       const activeJobs = data.filter(job => 
         job.status !== 'completed' && job.status !== 'cancelled'
       );
-      // --- END FIX ---
 
-      setJobs(activeJobs); // Set only the active jobs
+      setJobs(activeJobs);
     } catch (error: any) {
       toast({
         title: "Error loading jobs",
@@ -64,7 +99,6 @@ const CurrentJobs = () => {
       accepted: { label: "Runner Assigned", variant: "default" },
       picked_up: { label: "Picked Up", variant: "default" },
       delivered_by_runner: { label: "Awaiting Confirmation", variant: "outline" },
-      // Completed jobs are now filtered out, but this is good practice
       completed: { label: "Completed", variant: "outline" } 
     };
     const config = statusConfig[status] || { label: status, variant: "secondary" };
@@ -91,7 +125,7 @@ const CurrentJobs = () => {
             <Card key={job._id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex justify-between items-start">
-                  <CardTitle className="text-lg">{job.itemDescription}</CardTitle>
+                  <CardTitle className="text-lg">{job.title}</CardTitle>
                   {getStatusBadge(job.status)}
                 </div>
                 <CardDescription>

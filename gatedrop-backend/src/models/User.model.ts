@@ -5,11 +5,10 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   phone: { type: String, required: true, unique: true },
-  password: { type: String, required: true, select: false }, // 'select: false' hides it by default
+  password: { type: String, required: true, select: false },
   collegeId: { type: String },
   profileImageUrl: { type: String },
   
-  // From your docs
   walletBalance: { type: Number, default: 0 },
   gigsCompletedAsRunner: { type: Number, default: 0 },
   gigsPostedAsRequester: { type: Number, default: 0 },
@@ -17,7 +16,7 @@ const UserSchema = new mongoose.Schema({
   isBanned: { type: Boolean, default: false },
 }, { timestamps: true });
 
-// Middleware to hash password before saving
+// Password hash karne ka middleware
 UserSchema.pre('save', async function(next) {
   if (!this.isModified('password')) {
     return next();
@@ -27,8 +26,8 @@ UserSchema.pre('save', async function(next) {
   next();
 });
 
-// Method to compare passwords
-UserSchema.methods.comparePassword = async function(candidatePassword) {
+// Password compare karne ka method
+UserSchema.methods.comparePassword = async function(candidatePassword: string) { // <-- YEH HAI FIX (Type add karo)
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

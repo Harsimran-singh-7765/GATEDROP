@@ -25,7 +25,8 @@ interface Job {
   _id: string;
   pickupLocation: string;
   dropLocation: string;
-  itemDescription: string;
+  title: string;
+  description: string;
   fee: number;
   status: string;
   runnerDetailsCache?: {
@@ -40,18 +41,57 @@ const OrderDetailsRequester = () => {
   const [job, setJob] = useState<Job | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const { token, refreshUser } = useAuth();
+  const { token, refreshUser, socket } = useAuth(); // <-- Get socket
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadJob();
-  }, [id]);
+    if(token && id) {
+      loadJob();
+    }
+  }, [id, token]);
+
+  // Socket listener effect
+  useEffect(() => {
+    if (!socket || !id) return;
+
+    socket.emit('join_job_room', id);
+    console.log(`[Socket] Joining room: ${id}`);
+
+    const handleJobUpdate = (updatedJob: Job) => {
+      console.log('[Socket] Job updated:', updatedJob);
+      setJob(updatedJob);
+      
+      if (updatedJob.status === 'accepted') {
+        toast({ title: "A runner has accepted your job!" });
+      }
+      if (updatedJob.status === 'picked_up') {
+        toast({ title: "Your order has been picked up!" });
+      }
+      if (updatedJob.status === 'delivered_by_runner') {
+        toast({ title: "Your order has been delivered!", description: "Please confirm to release payment." });
+      }
+    };
+    
+    const handleReportUpdate = (status: { reportCount: number, isBanned: boolean }) => {
+      toast({ title: "Runner report status updated", description: `Runner now has ${status.reportCount} reports.` });
+    };
+
+    socket.on('job_updated', handleJobUpdate);
+    socket.on('runner_reported', handleReportUpdate);
+
+    return () => {
+      socket.off('job_updated', handleJobUpdate);
+      socket.off('runner_reported', handleReportUpdate);
+    };
+  }, [id, socket]);
+  // --- END SOCKET EFFECT ---
 
   const loadJob = async () => {
     if (!token || !id) return;
     
     try {
+      setIsLoading(true);
       const data = await jobApi.getJobById(id, token);
       setJob(data);
     } catch (error: any) {
@@ -95,7 +135,6 @@ const OrderDetailsRequester = () => {
         description: "Thank you for your feedback. We'll review this case.",
       });
       setReportReason("");
-      loadJob();
     } catch (error: any) {
       toast({
         title: "Failed to submit report",
@@ -135,7 +174,7 @@ const OrderDetailsRequester = () => {
       <Card>
         <CardHeader>
           <div className="flex justify-between items-start">
-            <CardTitle className="text-2xl">Order Details</CardTitle>
+            <CardTitle className="text-2xl">{job.title}</CardTitle>
             <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
           </div>
         </CardHeader>
@@ -163,7 +202,7 @@ const OrderDetailsRequester = () => {
 
           <div>
             <p className="font-semibold mb-1">Item Description</p>
-            <p className="text-muted-foreground">{job.itemDescription}</p>
+            <p className="text-muted-foreground">{job.description}</p>
           </div>
 
           <div>

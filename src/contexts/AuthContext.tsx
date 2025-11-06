@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 interface User {
-  id: string;
+  _id: string; 
   name: string;
   email: string;
   phone: string;
@@ -16,6 +17,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  socket: Socket | null;
   login: (email: string, password: string) => Promise<void>;
   signup: (data: SignupData) => Promise<void>;
   logout: () => void;
@@ -35,9 +37,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null); 
 
   useEffect(() => {
-    // Load token from localStorage on mount
     const savedToken = localStorage.getItem('authToken');
     const savedUser = localStorage.getItem('user');
     
@@ -45,11 +47,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(savedToken);
       setUser(JSON.parse(savedUser));
     }
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'authToken' && event.newValue === null) {
+        console.log("Auth token removed from other tab. Logging out.");
+        setToken(null);
+        setUser(null);
+        if (socket) {
+          socket.disconnect();
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
+  useEffect(() => {
+    if (token) {
+      // --- YEH HAI FIX ---
+      const newSocket = io(import.meta.env.VITE_API_URL);
+      
+      setSocket(newSocket); 
+
+      newSocket.on('connect', () => {
+        console.log('[Socket] Connected to backend:', newSocket.id);
+      });
+
+      newSocket.on('disconnect', () => {
+        console.log('[Socket] Disconnected from backend');
+      });
+
+      return () => {
+        newSocket.disconnect();
+      };
+    } else {
+      if (socket) {
+        socket.disconnect();
+        setSocket(null);
+      }
+    }
+  }, [token]);
+
   const login = async (email: string, password: string) => {
-    // API call to your backend: POST /api/auth/login
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/login`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -69,8 +113,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signup = async (signupData: SignupData) => {
-    // API call to your backend: POST /api/auth/signup
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/signup`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(signupData),
@@ -92,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setToken(null);
     setUser(null);
+    setSocket(null);
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
   };
@@ -99,8 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUser = async () => {
     if (!token) return;
     
-    // API call to refresh user data: GET /api/auth/me
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/me`, {
+    const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/me`, {
       headers: { 
         'Authorization': `Bearer ${token}`,
       },
@@ -114,7 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, signup, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, token, socket, login, signup, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

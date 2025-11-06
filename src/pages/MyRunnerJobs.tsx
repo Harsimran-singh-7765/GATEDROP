@@ -12,10 +12,11 @@ interface Job {
   _id: string;
   pickupLocation: string;
   dropLocation: string;
-  itemDescription: string;
+  title: string;
+  description: string;
   fee: number;
   status: string;
-  requesterDetailsCache?: { // Renamed from runnerDetailsCache
+  requesterDetailsCache?: { 
     name: string;
     phone: string;
   };
@@ -25,30 +26,48 @@ interface Job {
 const MyRunnerJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { token } = useAuth();
+  const { token, socket } = useAuth(); // <-- Get socket
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadJobs();
-  }, [token]); // <-- FIX: Added token dependency
+    if (token) {
+      loadJobs();
+    }
+  }, [token]); 
+
+  // Socket listener effect
+  useEffect(() => {
+    if (!socket) return;
+
+    // This listener just refetches the list if any job updates
+    const handleJobUpdate = () => {
+      console.log('[Socket] MyRunnerJobs detected an update, refetching...');
+      loadJobs();
+    };
+
+    socket.on('job_updated', handleJobUpdate);
+
+    return () => {
+      socket.off('job_updated', handleJobUpdate);
+    };
+  }, [socket, token]); 
+
 
   const loadJobs = async () => {
     if (!token) return;
     
     try {
+      setIsLoading(true); 
       const data = await jobApi.getMyRunnerJobs(token);
 
-      // --- THE FIX ---
-      // Filter out completed or cancelled jobs
       const activeJobs = data.filter(job => 
         job.status === 'accepted' || 
         job.status === 'picked_up' || 
         job.status === 'delivered_by_runner'
       );
-      // --- END FIX ---
 
-      setJobs(activeJobs); // Set only the active jobs
+      setJobs(activeJobs);
     } catch (error: any) {
       toast({
         title: "Error loading jobs",
@@ -90,7 +109,7 @@ const MyRunnerJobs = () => {
             <Card key={job._id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex justify-between items-start">
-                  <CardTitle className="text-lg">{job.itemDescription}</CardTitle>
+                  <CardTitle className="text-lg">{job.title}</CardTitle>
                   {getStatusBadge(job.status)}
                 </div>
                 <CardDescription>
@@ -107,7 +126,7 @@ const MyRunnerJobs = () => {
                     </p>
                   </div>
                 </div>
-                {job.requesterDetailsCache && ( // <-- FIX: Changed to requesterDetailsCache
+                {job.requesterDetailsCache && ( 
                   <div className="bg-muted p-3 rounded-md space-y-2">
                     <div className="flex items-center gap-2 text-sm">
                       <User className="h-4 w-4" />

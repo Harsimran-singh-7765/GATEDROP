@@ -12,28 +12,63 @@ interface Job {
   _id: string;
   pickupLocation: string;
   dropLocation: string;
-  itemDescription: string;
+  title: string;
+  description: string;
   jobDeadline?: string;
   fee: number;
   status: string;
   createdAt: string;
+  requesterId: string; 
 }
 
 const Jobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { token, user } = useAuth();
+  const { token, user, socket } = useAuth(); // <-- Get socket
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  // Initial jobs load
   useEffect(() => {
-    loadJobs();
-  }, []);
+    if (token) {
+      loadJobs();
+    }
+  }, [token]); 
+
+  // Real-time listener
+  useEffect(() => {
+    if (!socket || !user) return; 
+
+    console.log("[Socket] Jobs.tsx setting up listeners...");
+
+    const handleNewJob = (newJob: Job) => {
+      console.log('[Socket] Received new job:', newJob);
+      if (newJob.requesterId !== user._id) {
+        setJobs(prevJobs => [newJob, ...prevJobs]);
+      }
+    };
+
+    const handleJobTaken = (jobTaken: { _id: string }) => {
+      console.log('[Socket] Job taken:', jobTaken._id);
+      setJobs(prevJobs => prevJobs.filter(job => job._id !== jobTaken._id));
+    };
+
+    socket.on('new_job_available', handleNewJob);
+    socket.on('job_taken', handleJobTaken);
+
+    return () => {
+      console.log("[Socket] Jobs.tsx cleaning up listeners.");
+      socket.off('new_job_available', handleNewJob);
+      socket.off('job_taken', handleJobTaken);
+    };
+  }, [socket, user]);
+  // --- END OF SOCKET EFFECT ---
 
   const loadJobs = async () => {
     if (!token) return;
     
     try {
+      setIsLoading(true);
       const data = await jobApi.getAvailableJobs(token);
       setJobs(data);
     } catch (error: any) {
@@ -65,7 +100,6 @@ const Jobs = () => {
         title: "Job accepted!",
         description: "Check 'My Runner Jobs' to manage this delivery.",
       });
-      loadJobs();
       navigate("/my-runner-jobs");
     } catch (error: any) {
       toast({
@@ -104,7 +138,7 @@ const Jobs = () => {
             <Card key={job._id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex justify-between items-start">
-                  <CardTitle className="text-lg">{job.itemDescription}</CardTitle>
+                  <CardTitle className="text-lg">{job.title}</CardTitle>
                   <Badge className="bg-primary">₹{job.fee}</Badge>
                 </div>
                 <CardDescription>

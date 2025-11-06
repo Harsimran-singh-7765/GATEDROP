@@ -6,13 +6,14 @@ dotenv.config();
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dbConnect from './dbConnect';
-import { createServer } from 'http'; // <-- 1. Import http
-import { Server } from 'socket.io';   // <-- 2. Import socket.io Server
+import { createServer } from 'http';
+import { Server } from 'socket.io';   
 
 // Import routes
 import authRoutes from './routes/auth.routes';
 import jobRoutes from './routes/job.routes';
 import paymentRoutes from './routes/payment.routes';
+import adminRoutes from './routes/admin.routes'; // Yeh admin route hai
 import { AuthRequest } from './middleware/auth.middleware';
 
 // Check if JWT_SECRET is loaded
@@ -24,24 +25,34 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// --- 3. Create HTTP Server and Socket.io Server ---
+// --- YEH HAI FIX 1 ---
+// Apne Vercel URL ko yahaan daalein
+const VERCEL_FRONTEND_URL = "https://gatedrop-college-runs.vercel.app"; // <-- APNA VERCEL URL YAHAN DAALEIN
+
+const allowedOrigins = [
+  "http://localhost:8080", // Local development
+  VERCEL_FRONTEND_URL,     // Production frontend
+];
+// --- END FIX 1 ---
+
+
+// --- YEH HAI FIX 2: Socket.io CORS ---
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "http://localhost:8080", // Your frontend URL
+    origin: allowedOrigins, // Sirf in URLs ko allow karo
     methods: ["GET", "POST", "PATCH"],
   },
 });
+// --- END FIX 2 ---
 
-// --- 4. Socket.io Connection Logic ---
+// Socket.io Connection Logic
 io.on("connection", (socket) => {
   console.log(`[Socket] User connected: ${socket.id}`);
 
-  // This is our Room logic
-  // When frontend connects, it will emit 'join_job_room'
   socket.on("join_job_room", (jobId: string) => {
     console.log(`[Socket] User ${socket.id} joined room: ${jobId}`);
-    socket.join(jobId); // The user joins a "room" named after the job's ID
+    socket.join(jobId);
   });
 
   socket.on("disconnect", () => {
@@ -49,22 +60,23 @@ io.on("connection", (socket) => {
   });
 });
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// --- YEH HAI FIX 3: Express CORS ---
+app.use(cors({ origin: allowedOrigins })); // Sirf in URLs ko allow karo
+// --- END FIX 3 ---
 
-// --- 5. Middleware to make 'io' available to routes ---
-// This attaches the 'io' server to every request object
+app.use(express.json()); // Parse JSON bodies
+
+// Middleware to make 'io' available to routes
 app.use((req: Request, res: Response, next: NextFunction) => {
-  (req as AuthRequest).io = io; // We use our custom AuthRequest type
+  (req as AuthRequest).io = io; 
   next();
 });
-
 
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Test route
 app.get('/', (req, res) => {
@@ -76,7 +88,6 @@ console.log("Connecting to MongoDB Atlas...");
 dbConnect().then(() => {
   console.log('✅ Successfully connected to MongoDB Atlas');
   
-  // --- 6. Start the httpServer, NOT the 'app' ---
   httpServer.listen(PORT, () => {
     console.log(`✅ Server (with Sockets) running on http://localhost:${PORT}`);
   });

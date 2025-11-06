@@ -16,7 +16,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     const { 
       pickupLocation, 
       dropLocation, 
-      itemDescription, 
+      title,
+      description,
       fee, 
       paymentId 
     } = req.body;
@@ -32,7 +33,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       requesterId,
       pickupLocation,
       dropLocation,
-      itemDescription,
+      title,
+      description,
       fee,
       paymentId, 
       paymentStatus: 'successful', 
@@ -45,11 +47,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 
     await newJob.save();
     
-    // --- 🚀 SOCKET EMIT ---
-    // Emits a 'new_job' event to all connected clients (except the sender)
-    // This updates the 'Available Jobs' list for everyone else in real-time.
     req.io!.emit('new_job_available', newJob);
-    // --- END EMIT ---
 
     res.status(201).json(newJob);
 
@@ -59,7 +57,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-// --- IMPORTANT: Specific GET routes must come BEFORE dynamic /:id ---
+// --- Specific GET routes must come BEFORE dynamic /:id ---
 
 /**
  * @route   GET /api/jobs/available
@@ -177,12 +175,8 @@ router.post('/:id/accept', authMiddleware, async (req: AuthRequest, res) => {
 
     await job.save();
 
-    // --- 🚀 SOCKET EMIT ---
-    // Emits the updated job data to the room named after the job's ID
     req.io!.to(jobId).emit('job_updated', job);
-    // Also emit to the public feed that this job is gone
     req.io!.emit('job_taken', { _id: jobId });
-    // --- END EMIT ---
 
     res.json(job);
 
@@ -199,7 +193,7 @@ router.post('/:id/accept', authMiddleware, async (req: AuthRequest, res) => {
  */
 router.patch('/:id/status', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    const { status } = req.body; // 'picked_up' or 'delivered_by_runner'
+    const { status } = req.body; 
     const jobId = req.params.id;
     const runnerId = req.user!.userId;
 
@@ -226,10 +220,7 @@ router.patch('/:id/status', authMiddleware, async (req: AuthRequest, res) => {
     job.status = status;
     await job.save();
 
-    // --- 🚀 SOCKET EMIT ---
-    // Emits the updated job data to the room named after the job's ID
     req.io!.to(jobId).emit('job_updated', job);
-    // --- END EMIT ---
 
     res.json(job);
 
@@ -264,7 +255,14 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ message: 'Job has not been marked as delivered by the runner yet' });
     }
 
+    // --- YEH HAI FIX ---
+    // Pehle check karo ki runnerId hai ya nahi
+    if (!job.runnerId) {
+      return res.status(400).json({ message: 'Cannot confirm job: Runner ID is missing.' });
+    }
     const runner = await User.findById(job.runnerId);
+    // --- END FIX ---
+
     if (!runner) {
       return res.status(404).json({ message: 'Runner user not found. Cannot process payment.' });
     }
@@ -282,10 +280,7 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
     await runner.save();
     await requester.save();
 
-    // --- 🚀 SOCKET EMIT ---
-    // Emits the final 'completed' job data to the room
     req.io!.to(jobId).emit('job_updated', job);
-    // --- END EMIT ---
 
     console.log(`[Job ${jobId}] Confirmed! Paid ₹${job.fee} to runner ${runner.email}`);
     res.json(job); 
@@ -306,7 +301,6 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const job = await Job.findById(req.params.id);
     if (!job) {
-      // Corrected the 4404 typo to 404
       return res.status(404).json({ message: 'Job not found' });
     }
     
@@ -325,9 +319,10 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
 /**
  * @route   POST /api/jobs/:id/report
- * @desc    NEW ROUTE: Report a runner (Requester)
+ * @desc    Report a runner (Requester)
  * @access  Private
  */
 router.post('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
@@ -345,7 +340,13 @@ router.post('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'You are not the requester for this job' });
     }
 
+    // --- YEH BHI EK FIX HAI ---
+    if (!job.runnerId) {
+      return res.status(400).json({ message: 'Cannot report: Runner ID is missing.' });
+    }
     const runner = await User.findById(job.runnerId);
+    // --- END FIX ---
+
     if (!runner) {
       return res.status(404).json({ message: 'Runner user not found.' });
     }
@@ -357,15 +358,11 @@ router.post('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
     }
 
     await runner.save();
-
-    // --- 🚀 SOCKET EMIT ---
-    // You can let the runner know they've been reported (or just the requester)
-    // Emitting the updated runner status to the room.
+    
     req.io!.to(jobId).emit('runner_reported', { 
       reportCount: runner.reportCount, 
       isBanned: runner.isBanned 
     });
-    // --- END EMIT ---
 
     console.log(`[Report] Runner ${runner.email} reported for job ${jobId}. Reason: ${reason}`);
     res.json({ success: true, message: 'Report submitted', runnerStatus: {

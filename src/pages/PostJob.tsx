@@ -10,13 +10,17 @@ import { jobApi, paymentApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 const PostJob = () => {
+  // --- YEH CHANGES HAIN ---
   const [formData, setFormData] = useState({
+    title: "", // Naya field
     pickupLocation: "",
     dropLocation: "",
-    itemDescription: "",
+    description: "", // Pehle 'itemDescription' tha
     jobDeadline: "",
     fee: "30",
   });
+  // --- END CHANGES ---
+
   const [isLoading, setIsLoading] = useState(false);
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -42,28 +46,26 @@ const PostJob = () => {
     setIsLoading(true);
 
     try {
-      // Step 1: Create payment order
       const paymentOrder = await paymentApi.createPaymentOrder(fee, token!);
-      
-      // Step 2: In a real app, you'd integrate Razorpay/Stripe here
-      // For now, we'll simulate payment success
-      // This is where you'd show Razorpay checkout modal
       
       toast({
         title: "Payment Integration Required",
         description: "In production, Razorpay/Stripe checkout would open here. For now, proceeding with dummy payment...",
       });
 
-      // Simulate payment verification
       const dummyPaymentId = `pay_${Date.now()}`;
       
-      // Step 3: Create job with payment ID
+      // --- YEH CHANGES HAIN ---
       await jobApi.createJob({
-        ...formData,
+        title: formData.title,
+        pickupLocation: formData.pickupLocation,
+        dropLocation: formData.dropLocation,
+        description: formData.description,
         fee,
         paymentId: dummyPaymentId,
         jobDeadline: formData.jobDeadline || undefined,
       }, token!);
+      // --- END CHANGES ---
 
       toast({
         title: "Job posted successfully!",
@@ -91,6 +93,21 @@ const PostJob = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            
+            {/* --- NAYA FIELD ADD KIYA --- */}
+            <div className="space-y-2">
+              <Label htmlFor="title">Job Title *</Label>
+              <Input
+                id="title"
+                placeholder="e.g., Urgent: Need My Charger from Library"
+                value={formData.title}
+                onChange={handleChange}
+                required
+              />
+              <p className="text-sm text-muted-foreground">This title will be visible to all runners.</p>
+            </div>
+            {/* --- END NAYA FIELD --- */}
+
             <div className="space-y-2">
               <Label htmlFor="pickupLocation">Pickup Location *</Label>
               <Input
@@ -111,16 +128,21 @@ const PostJob = () => {
                 required
               />
             </div>
+            
+            {/* --- YEH CHANGE HUA HAI --- */}
             <div className="space-y-2">
-              <Label htmlFor="itemDescription">Item Description *</Label>
+              <Label htmlFor="description">Item Description *</Label>
               <Textarea
-                id="itemDescription"
-                placeholder="e.g., 1 Blue Phone Charger"
-                value={formData.itemDescription}
+                id="description"
+                placeholder="e.g., 1 Blue Phone Charger, OnePlus brand. Please be careful."
+                value={formData.description}
                 onChange={handleChange}
                 required
               />
+              <p className="text-sm text-muted-foreground">This description will only be visible after a runner accepts the job.</p>
             </div>
+            {/* --- END CHANGE --- */}
+
             <div className="space-y-2">
               <Label htmlFor="jobDeadline">Delivery Deadline (Optional)</Label>
               <Input
