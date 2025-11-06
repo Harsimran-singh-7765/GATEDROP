@@ -6,11 +6,6 @@ import User from '../models/User.model';
 
 const router = Router();
 
-// ... (all your routes: / , /available , /my-posted , /my-runner , /history , /:id/accept , /:id/status , /:id/confirm , /:id) ...
-// (I am omitting the routes here for brevity, but use the full code from the previous step)
-
-// PASTE ALL YOUR ROUTES FROM THE PREVIOUS MESSAGE HERE
-
 /**
  * @route   POST /api/jobs
  * @desc    Create a new job post
@@ -49,6 +44,13 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     });
 
     await newJob.save();
+    
+    // --- 🚀 SOCKET EMIT ---
+    // Emits a 'new_job' event to all connected clients (except the sender)
+    // This updates the 'Available Jobs' list for everyone else in real-time.
+    req.io!.emit('new_job_available', newJob);
+    // --- END EMIT ---
+
     res.status(201).json(newJob);
 
   } catch (error: any) {
@@ -122,7 +124,6 @@ router.get('/my-runner', authMiddleware, async (req: AuthRequest, res) => {
  */
 router.get('/history', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    // THE FIX: Convert the string userId to a Mongoose ObjectId
     const userId = new mongoose.Types.ObjectId(req.user!.userId);
 
     const jobHistory = await Job.find({
@@ -175,6 +176,14 @@ router.post('/:id/accept', authMiddleware, async (req: AuthRequest, res) => {
     };
 
     await job.save();
+
+    // --- 🚀 SOCKET EMIT ---
+    // Emits the updated job data to the room named after the job's ID
+    req.io!.to(jobId).emit('job_updated', job);
+    // Also emit to the public feed that this job is gone
+    req.io!.emit('job_taken', { _id: jobId });
+    // --- END EMIT ---
+
     res.json(job);
 
   } catch (error: any) {
@@ -216,6 +225,12 @@ router.patch('/:id/status', authMiddleware, async (req: AuthRequest, res) => {
 
     job.status = status;
     await job.save();
+
+    // --- 🚀 SOCKET EMIT ---
+    // Emits the updated job data to the room named after the job's ID
+    req.io!.to(jobId).emit('job_updated', job);
+    // --- END EMIT ---
+
     res.json(job);
 
   } catch (error: any)
@@ -224,6 +239,7 @@ router.patch('/:id/status', authMiddleware, async (req: AuthRequest, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
 
 /**
  * @route   POST /api/jobs/:id/confirm
@@ -266,6 +282,11 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
     await runner.save();
     await requester.save();
 
+    // --- 🚀 SOCKET EMIT ---
+    // Emits the final 'completed' job data to the room
+    req.io!.to(jobId).emit('job_updated', job);
+    // --- END EMIT ---
+
     console.log(`[Job ${jobId}] Confirmed! Paid ₹${job.fee} to runner ${runner.email}`);
     res.json(job); 
 
@@ -285,7 +306,8 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const job = await Job.findById(req.params.id);
     if (!job) {
-      return res.status(4404).json({ message: 'Job not found' });
+      // Corrected the 4404 typo to 404
+      return res.status(404).json({ message: 'Job not found' });
     }
     
     const isRequester = job.requesterId.toString() === req.user!.userId;
@@ -319,30 +341,31 @@ router.post('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ message: 'Job not found' });
     }
 
-    // Security check: Only the REQUESTER can report
     if (job.requesterId.toString() !== requesterId) {
       return res.status(403).json({ message: 'You are not the requester for this job' });
     }
 
-    // Find the runner to update their stats
     const runner = await User.findById(job.runnerId);
     if (!runner) {
       return res.status(404).json({ message: 'Runner user not found.' });
     }
 
-    // --- BAN LOGIC ---
     runner.reportCount += 1;
     if (runner.reportCount > 2) {
       runner.isBanned = true;
       console.log(`[Report] User ${runner.email} has been BANNED.`);
     }
-    // --- End BAN LOGIC ---
 
     await runner.save();
-    
-    // You could also save the report reason to the job
-    // job.reportReason = reason;
-    // await job.save();
+
+    // --- 🚀 SOCKET EMIT ---
+    // You can let the runner know they've been reported (or just the requester)
+    // Emitting the updated runner status to the room.
+    req.io!.to(jobId).emit('runner_reported', { 
+      reportCount: runner.reportCount, 
+      isBanned: runner.isBanned 
+    });
+    // --- END EMIT ---
 
     console.log(`[Report] Runner ${runner.email} reported for job ${jobId}. Reason: ${reason}`);
     res.json({ success: true, message: 'Report submitted', runnerStatus: {
