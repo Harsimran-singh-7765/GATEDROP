@@ -1,100 +1,163 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.model';
-// 1. ADD THIS IMPORT
+import OtpVerification from '../models/OtpVerification.model';
 import authMiddleware, { AuthRequest } from '../middleware/auth.middleware';
+import { generateOtp, sendOtpEmail } from '../services/mail.service';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET!;
+// FIX: Domain check ke liye @ se shuru kiya
+const COLLEGE_EMAIL_DOMAIN = "@mail.jiit.ac.in"; 
 
-// POST /api/auth/signup
-router.post('/signup', async (req, res) => {
+// --- NEW ROUTE: REQUEST OTP (Phase 1) ---
+
+router.post('/request-otp', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || !email.endsWith(COLLEGE_EMAIL_DOMAIN)) {
+    return res.status(400).json({ message: `Invalid college email domain. Must end with ${COLLEGE_EMAIL_DOMAIN}` });
+  }
+
   try {
-    const { name, email, phone, password, collegeId } = req.body;
-
-    // Check if user already exists
-    let user = await User.findOne({ $or: [{ email }, { phone }] });
-    if (user) {
-      return res.status(400).json({ message: 'User with this email or phone already exists' });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists. Please log in.' });
     }
 
-    // Create new user (password will be hashed by the pre-save hook)
+    const otpCode = generateOtp();
+    await OtpVerification.deleteOne({ email }); 
+
+    const newOtp = new OtpVerification({ email, otp: otpCode });
+    await newOtp.save();
+
+    await sendOtpEmail(email, otpCode);
+
+    res.status(200).json({ message: 'Verification code sent to your email.' });
+
+  } catch (error: any) {
+    console.error('[Request OTP Error]:', error);
+    res.status(500).json({ message: error.message || 'Failed to generate and send OTP.' });
+  }
+});
+
+
+// --- UPDATED ROUTE: SIGNUP (Phase 2) ---
+
+router.post('/signup', async (req, res) => {
+  try {
+    const { name, email, phone, password, collegeId, otp } = req.body;
+
+    if (!otp) {
+        return res.status(400).json({ message: 'Verification OTP is required.' });
+    }
+    
+    const otpRecord = await OtpVerification.findOne({ email });
+
+    if (!otpRecord || otpRecord.otp !== otp) {
+        return res.status(401).json({ message: 'Invalid verification code.' });
+    }
+    
+    await OtpVerification.deleteOne({ email });
+
+    let user = await User.findOne({ $or: [{ email }, { phone }] });
+    if (user) {
+      return res.status(400).json({ message: 'User already exists. You can now log in.' });
+    }
+
     user = new User({ name, email, phone, password, collegeId });
     await user.save();
 
-    // Generate token
-    const payload = { userId: user._id };
+    // FIX 1: User ko dobara fetch karo taaki saare default fields aur stats aa jaayen
+    const fullUser = await User.findById(user._id);
+    if (!fullUser) {
+        return res.status(500).json({ message: 'Registration failed: User data not found after save.' });
+    }
+    
+    const payload = { userId: fullUser._id };
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 
-    // As per docs: return token and user
+    // FIX: Saare fields return kiye
     res.status(201).json({ 
       token, 
       user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone
+        _id: fullUser._id,
+        name: fullUser.name,
+        email: fullUser.email,
+        phone: fullUser.phone,
+        isBanned: fullUser.isBanned || false,
+        walletBalance: fullUser.walletBalance,
+        gigsCompletedAsRunner: fullUser.gigsCompletedAsRunner,
+        gigsPostedAsRequester: fullUser.gigsPostedAsRequester,
+        reportCount: fullUser.reportCount
       } 
     });
 
   } catch (error: any) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error during signup', error: error.message });
   }
 });
+
+
+// --- EXISTING ROUTES ---
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user by email and explicitly select password
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    // Compare password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    // Generate token
-    const payload = { userId: user._id };
+    // FIX 2: User ko password select kiye bina dobara fetch karo taaki default fields milen
+    const fullUser = await User.findById(user._id);
+    if (!fullUser) {
+        return res.status(404).json({ message: 'User data not found.' });
+    }
+
+    const payload = { userId: fullUser._id };
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
     
-    // As per docs: return token and user
+    // FIX: Saare fields return kiye
     res.status(200).json({ 
       token, 
       user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        isBanned: user.isBanned // Frontend needs this
+        _id: fullUser._id,
+        name: fullUser.name,
+        email: fullUser.email,
+        phone: fullUser.phone,
+        isBanned: fullUser.isBanned,
+        walletBalance: fullUser.walletBalance,
+        gigsCompletedAsRunner: fullUser.gigsCompletedAsRunner,
+        gigsPostedAsRequester: fullUser.gigsPostedAsRequester,
+        reportCount: fullUser.reportCount
       } 
     });
 
   } catch (error: any) {
+    console.error('[LOGIN ERROR]:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
 
-// 2. ADD THIS ENTIRE ROUTE
-/**
- * @route   GET /api/auth/me
- * @desc    Get current user data from token
- * @access  Private
- */
+// GET /api/auth/me
 router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
   try {
-    // authMiddleware already verified token and attached req.user
-    const user = await User.findById(req.user!.userId).select('-password');
+    // FIX 3: User ko simple findById se fetch kiya (Mongoose default fields de dega)
+    const user = await User.findById(req.user!.userId); 
     if (!user) {
-      return res.status(4.04).json({ message: 'User not found' });
+      return res.status(404).json({ message: 'User not found' });
     }
-    res.json(user);
+    // FIX: Poora user object return kiya (ismein saare stats aur wallet balance hain)
+    res.json(user); 
   } catch (error: any) {
     console.error('[GET /api/auth/me] Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });

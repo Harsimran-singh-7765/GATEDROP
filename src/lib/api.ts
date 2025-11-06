@@ -39,7 +39,7 @@ async function apiCall(endpoint: string, options: ApiOptions = {}) {
   return response.json();
 }
 
-// Auth APIs
+// --- Authentication APIs ---
 export const authApi = {
   login: (email: string, password: string) =>
     apiCall('/api/auth/login', { method: 'POST', body: { email, password } }),
@@ -51,7 +51,7 @@ export const authApi = {
     apiCall('/api/auth/me', { token }),
 };
 
-// Job APIs
+// --- Job APIs ---
 export const jobApi = {
   // Get all available jobs (status: pending, paymentStatus: successful)
   getAvailableJobs: (token: string) =>
@@ -94,7 +94,7 @@ export const jobApi = {
     apiCall(`/api/jobs/${jobId}/report`, { method: 'POST', body: { reason }, token }),
 };
 
-// Payment APIs
+// --- Payment APIs ---
 export const paymentApi = {
   // Create payment order
   createPaymentOrder: (amount: number, token: string) =>
@@ -105,9 +105,10 @@ export const paymentApi = {
     apiCall('/api/payment/verify', { method: 'POST', body: paymentData, token }),
 };
 
-// Wallet APIs
+// --- Wallet APIs ---
 export const walletApi = {
   // Get wallet balance
+  // NOTE: We rely on the /api/auth/me response for balance, but keeping this for completeness
   getBalance: (token: string) =>
     apiCall('/api/wallet/balance', { token }),
   
@@ -116,18 +117,20 @@ export const walletApi = {
     apiCall('/api/wallet/cashout', { method: 'POST', body: { amount }, token }),
 };
 
-// User APIs
+// --- User APIs ---
 export const userApi = {
   // Update profile
   updateProfile: (data: any, token: string) =>
     apiCall('/api/user/profile', { method: 'PATCH', body: data, token }),
   
   // Upload profile image
+  // This uses a direct fetch because apiCall stringifies the FormData, which we don't want
   uploadProfileImage: (formData: FormData, token: string) => {
     return fetch(`${API_URL}/api/user/profile-image`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
+        // NOTE: Do not set 'Content-Type': 'application/json' here for FormData
       },
       body: formData,
     }).then(res => res.json());

@@ -1,73 +1,109 @@
-import { Link, useLocation, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { Briefcase, List, User, History, PlusCircle, LogOut, Wallet } from "lucide-react";
+import { Home, List, User, History, LogOut, Wallet } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { MobileBottomNav } from "./MobileBottomNav"; // Import the bottom nav
+import { useEffect } from "react";
 
-const DashboardLayout = () => {
-  const location = useLocation();
-  const { user, logout } = useAuth();
+// Desktop nav link ke liye helper
+const getDesktopNavLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50",
+    isActive && "text-primary bg-primary/10"
+  );
 
-  const navItems = [
-    { path: "/jobs", label: "Jobs", icon: Briefcase },
-    { path: "/current-jobs", label: "Current Jobs", icon: List },
-    { path: "/my-runner-jobs", label: "My Runner Jobs", icon: Briefcase },
-    { path: "/history", label: "History", icon: History },
-    { path: "/post-job", label: "Post Job", icon: PlusCircle },
-    { path: "/profile", label: "Profile", icon: User },
-  ];
+export const DashboardLayout = () => {
+  const { user, logout, socket, refreshUser } = useAuth();
+  const navigate = useNavigate();
+
+  // --- WALLET UPDATE LISTENER (Essential for live stats) ---
+  useEffect(() => {
+    if (!socket || !user) return;
+
+    const handleBalanceUpdate = (data: { userId: string, newBalance: number }) => {
+        // Only refresh if the update is for the current user
+        if (data.userId === user._id) {
+            console.log(`[Socket] Balance update detected. New: ${data.newBalance}`);
+            refreshUser(); 
+        }
+    };
+
+    socket.on('user_balance_updated', handleBalanceUpdate);
+
+    return () => {
+        socket.off('user_balance_updated', handleBalanceUpdate);
+    };
+  }, [socket, user?._id, refreshUser]);
+  // --- END WALLET UPDATE LISTENER ---
+
+
+  const handleLogout = () => {
+    logout();
+    navigate("/landing"); // Logout ke baad landing page par bhejein
+  };
+  
+  const displayBalance = user?.walletBalance ? user.walletBalance.toFixed(2) : '0.00';
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link to="/jobs">
-            <h1 className="text-2xl font-bold text-primary">Gatedrop</h1>
+    <div className="min-h-screen w-full bg-background">
+      {/* === 1. TOP HEADER === */}
+      <header className="sticky top-0 z-40 w-full border-b bg-background">
+        <div className="container flex h-16 items-center justify-between px-4">
+          
+          {/* Logo */}
+          <Link to="/jobs" className="flex items-center">
+            <img src="/logo.png" alt="Gatedrop" className="h-16 w-auto" /> 
           </Link>
+
+          {/* === 2. DESKTOP NAVIGATION === */}
+          <nav className="hidden md:flex items-center space-x-2 lg:space-x-4">
+            <NavLink to="/jobs" className={getDesktopNavLinkClass}>
+              <Home className="h-4 w-4" /> Jobs
+            </NavLink>
+            <NavLink to="/current-jobs" className={getDesktopNavLinkClass}>
+              <List className="h-4 w-4" /> Current Jobs
+            </NavLink>
+            <NavLink to="/history" className={getDesktopNavLinkClass}>
+              <History className="h-4 w-4" /> History
+            </NavLink>
+            <NavLink to="/profile" className={getDesktopNavLinkClass}>
+              <User className="h-4 w-4" /> Profile
+            </NavLink>
+          </nav>
+
+          {/* --- Desktop Wallet & Logout --- */}
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm">
-              <Wallet className="h-4 w-4 text-primary" />
-              <span className="font-semibold">₹{user?.walletBalance || 0}</span>
+            {/* Desktop Wallet */}
+            <div className="hidden md:flex items-center gap-2 text-primary font-semibold">
+              <Wallet className="h-5 w-5" />
+              <span>₹{displayBalance}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={logout}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Logout
+            {/* Mobile Wallet (Top-right) */}
+             <div className="md:hidden flex items-center gap-1 text-primary font-semibold">
+              <Wallet className="h-5 w-5" />
+              <span className="text-sm">₹{displayBalance}</span>
+            </div>
+
+            <Button variant="ghost" size="sm" className="hidden md:flex" onClick={handleLogout}>
+              <LogOut className="h-4 w-4 mr-2" /> Logout
+            </Button>
+            
+            {/* Mobile Logout Button (Visible only on mobile) */}
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={handleLogout}>
+              <LogOut className="h-5 w-5" />
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Navigation Tabs */}
-      <nav className="border-b bg-card">
-        <div className="container mx-auto px-4">
-          <div className="flex overflow-x-auto">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = location.pathname === item.path;
-              return (
-                <Link key={item.path} to={item.path}>
-                  <Button
-                    variant="ghost"
-                    className={`rounded-none border-b-2 ${
-                      isActive
-                        ? "border-primary text-primary"
-                        : "border-transparent"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4 mr-2" />
-                    {item.label}
-                  </Button>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+      {/* === 3. PAGE CONTENT === */}
+      <main className="container mx-auto max-w-5xl p-4 md:p-6 pb-20 md:pb-6">
         <Outlet />
       </main>
+
+      {/* === 4. MOBILE BOTTOM NAV === */}
+      <MobileBottomNav />
     </div>
   );
 };

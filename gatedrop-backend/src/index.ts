@@ -13,9 +13,9 @@ import { Server } from 'socket.io';
 import authRoutes from './routes/auth.routes';
 import jobRoutes from './routes/job.routes';
 import paymentRoutes from './routes/payment.routes';
-import adminRoutes from './routes/admin.routes'; // Yeh admin route hai
+import adminRoutes from './routes/admin.routes'; 
 import { AuthRequest } from './middleware/auth.middleware';
-
+import walletRoutes from './routes/wallet.routes';
 // Check if JWT_SECRET is loaded
 if (!process.env.JWT_SECRET) {
   console.error("FATAL ERROR: JWT_SECRET is not defined in .env file");
@@ -25,26 +25,29 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// --- YEH HAI FIX 1 ---
-// Apne Vercel URL ko yahaan daalein
-const VERCEL_FRONTEND_URL = "https://gatedrop-college-runs.vercel.app"; // <-- APNA VERCEL URL YAHAN DAALEIN
+// --- YEH HAI FIX ---
+// 1. Apne Vercel URL ko yahaan daalein
+const VERCEL_FRONTEND_URL = "https://gatedrop.vercel.app"; // <-- APNA VERCEL URL YAHAN DAALEIN
 
+// 2. Localhost ports aur Vercel URL ko allow karein
 const allowedOrigins = [
-  "http://localhost:8080", // Local development
+  "http://localhost:5173", // Vite default
+  "http://localhost:8080", // Aapke docs waala port
   VERCEL_FRONTEND_URL,     // Production frontend
+  // '0.0.0.0' or '*' is not used here for better security control
 ];
-// --- END FIX 1 ---
+// --- END FIX ---
 
 
-// --- YEH HAI FIX 2: Socket.io CORS ---
+// --- Socket.io CORS ---
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: allowedOrigins, // Sirf in URLs ko allow karo
-    methods: ["GET", "POST", "PATCH"],
+    origin: allowedOrigins, 
+    methods: ["GET", "POST", "PATCH", "DELETE"], // DELETE bhi add karein
   },
 });
-// --- END FIX 2 ---
+// --- END Socket.io FIX ---
 
 // Socket.io Connection Logic
 io.on("connection", (socket) => {
@@ -60,9 +63,9 @@ io.on("connection", (socket) => {
   });
 });
 
-// --- YEH HAI FIX 3: Express CORS ---
+// --- Express CORS ---
 app.use(cors({ origin: allowedOrigins })); // Sirf in URLs ko allow karo
-// --- END FIX 3 ---
+// --- END Express CORS ---
 
 app.use(express.json()); // Parse JSON bodies
 
@@ -77,7 +80,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/admin', adminRoutes);
-
+app.use('/api/wallet', walletRoutes);
 // Test route
 app.get('/', (req, res) => {
   res.send('Gatedrop Backend API is running! 🚀');

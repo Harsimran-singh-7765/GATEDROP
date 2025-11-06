@@ -19,7 +19,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       title,
       description,
       fee, 
-      paymentId 
+      paymentId,
+      jobDeadline // <-- FIX: YEH NAYA FIELD RECEIVE KIYA
     } = req.body;
     
     const requesterId = req.user!.userId;
@@ -37,6 +38,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       description,
       fee,
       paymentId, 
+      jobDeadline, // <-- FIX: YEH FIELD MODEL KO PASS KIYA
       paymentStatus: 'successful', 
       status: 'pending', 
       requesterDetailsCache: {
@@ -255,14 +257,12 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ message: 'Job has not been marked as delivered by the runner yet' });
     }
 
-    // --- YEH HAI FIX ---
     // Pehle check karo ki runnerId hai ya nahi
     if (!job.runnerId) {
       return res.status(400).json({ message: 'Cannot confirm job: Runner ID is missing.' });
     }
     const runner = await User.findById(job.runnerId);
-    // --- END FIX ---
-
+    
     if (!runner) {
       return res.status(404).json({ message: 'Runner user not found. Cannot process payment.' });
     }
@@ -280,7 +280,14 @@ router.post('/:id/confirm', authMiddleware, async (req: AuthRequest, res) => {
     await runner.save();
     await requester.save();
 
-    req.io!.to(jobId).emit('job_updated', job);
+    // 1. Job status update (for status on pages)
+    req.io!.to(jobId).emit('job_updated', job); 
+
+    // 2. Wallet update (for DashboardLayout)
+    req.io!.emit('user_balance_updated', { 
+        userId: runner._id.toString(), 
+        newBalance: runner.walletBalance 
+    });
 
     console.log(`[Job ${jobId}] Confirmed! Paid ₹${job.fee} to runner ${runner.email}`);
     res.json(job); 
@@ -340,12 +347,10 @@ router.post('/:id/report', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'You are not the requester for this job' });
     }
 
-    // --- YEH BHI EK FIX HAI ---
     if (!job.runnerId) {
       return res.status(400).json({ message: 'Cannot report: Runner ID is missing.' });
     }
     const runner = await User.findById(job.runnerId);
-    // --- END FIX ---
 
     if (!runner) {
       return res.status(404).json({ message: 'Runner user not found.' });

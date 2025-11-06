@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { jobApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, Package, Clock, IndianRupee } from "lucide-react";
+import { MapPin, Package, Clock, IndianRupee, PlusCircle } from "lucide-react"; // <-- PlusCircle import
 import { useNavigate } from "react-router-dom";
 
 interface Job {
@@ -24,18 +24,16 @@ interface Job {
 const Jobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { token, user, socket } = useAuth(); // <-- Get socket
+  const { token, user, socket } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Initial jobs load
   useEffect(() => {
     if (token) {
       loadJobs();
     }
   }, [token]); 
 
-  // Real-time listener
   useEffect(() => {
     if (!socket || !user) return; 
 
@@ -61,8 +59,7 @@ const Jobs = () => {
       socket.off('new_job_available', handleNewJob);
       socket.off('job_taken', handleJobTaken);
     };
-  }, [socket, user]);
-  // --- END OF SOCKET EFFECT ---
+  }, [socket, user]); 
 
   const loadJobs = async () => {
     if (!token) return;
@@ -98,9 +95,9 @@ const Jobs = () => {
       await jobApi.acceptJob(jobId, token);
       toast({
         title: "Job accepted!",
-        description: "Check 'My Runner Jobs' to manage this delivery.",
+        description: "Check 'Current Jobs' to manage this delivery.",
       });
-      navigate("/my-runner-jobs");
+      navigate("/current-jobs"); // <-- FIX: /my-runner-jobs se /current-jobs
     } catch (error: any) {
       toast({
         title: "Failed to accept job",
@@ -116,7 +113,17 @@ const Jobs = () => {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Available Jobs</h1>
+      {/* --- YEH HAI FIX: HEADER AUR BUTTON --- */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Available Jobs</h1>
+        {/* Desktop Button */}
+        <Button className="hidden md:flex" onClick={() => navigate("/post-job")}>
+          <PlusCircle className="h-4 w-4 mr-2" />
+          Post a New Job
+        </Button>
+      </div>
+      {/* --- END FIX --- */}
+
       {user?.isBanned && (
         <Card className="mb-6 border-destructive">
           <CardContent className="pt-6">
@@ -126,6 +133,7 @@ const Jobs = () => {
           </CardContent>
         </Card>
       )}
+      
       {jobs.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-center text-muted-foreground">
@@ -144,7 +152,7 @@ const Jobs = () => {
                 <CardDescription>
                   Posted {new Date(job.createdAt).toLocaleDateString()}
                 </CardDescription>
-              </CardHeader>
+          </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-start gap-2 text-sm">
                   <MapPin className="h-4 w-4 text-primary mt-0.5" />
@@ -178,6 +186,17 @@ const Jobs = () => {
           ))}
         </div>
       )}
+
+      {/* --- YEH HAI FIX: MOBILE FLOATING BUTTON --- */}
+      {/* 'bottom-20' isliye taaki yeh bottom nav ke upar aaye (h-16 nav + 1rem padding) */}
+      <Button 
+        className="md:hidden fixed bottom-20 right-4 h-14 w-14 rounded-full shadow-lg z-30" 
+        size="icon"
+        onClick={() => navigate("/post-job")}
+      >
+        <PlusCircle className="h-14- w-14" />
+      </Button>
+      {/* --- END FIX --- */}
     </div>
   );
 };
