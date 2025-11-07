@@ -2,14 +2,14 @@
 
 <p align="center"> <img src="./public/logo.png" alt="Gatedrop Logo" width="400"/> </p>
 
-<h1 align="center">🚀 Gatedrop: P2P Campus Delivery</h1>
+<h1 align="center"> Gatedrop: P2P Campus Delivery</h1>
 
 <p align="center"> <strong>Gatedrop is a hyper-local, real-time, peer-to-peer delivery platform built for your college campus.</strong> <br /> It connects students who need items ("Requesters") with students who can deliver them ("Runners"). </p>
 
 <p align="center"> <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React"> <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript"> <img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite"> <img src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node.js"> <img src="https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white" alt="Express"> <img src="https://img.shields.io/badge/Socket.io-010101?style=for-the-badge&logo=socket.io&logoColor=white" alt="Socket.io"> <img src="https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB"> <img src="https://img.shields.io/badge/Mailjet-000000?style=for-the-badge&logo=mailjet&logoColor=white" alt="Mailjet"> <img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS"> </p>
 -----
 
-## ✨ Core Features
+##  Core Features
 
   * **Real-time Job Marketplace:** The "Available Jobs" feed is powered by WebSockets. When a Requester posts a job, it instantly appears on every Runner's screen without a refresh.
   * **Live Runner Tracking:** Our hackathon-winning feature\! Requesters can track their Runner's location in real-time on a custom, pixel-art map of the campus.
@@ -21,11 +21,25 @@
 
 -----
 
-## 🌊 Job Lifecycle Flowchart (Mermaid)
+##  Job Lifecycle Flowchart 
 
 This diagram shows the complete flow of a job from posting to completion, including the real-time events.
 
 ```mermaid
+%%{init: {
+    "theme": "base",
+    "themeVariables": {
+        "primaryColor": "#1e1e1e",
+        "primaryTextColor": "#ffffff",
+        "secondaryColor": "#333333",
+        "tertiaryColor": "#222222",
+        "lineColor": "#00bcd4",
+        "background": "#0d1117",
+        "fontFamily": "Inter, sans-serif",
+        "fontSize": "14px"
+    },
+    "themeCSS": ".mermaid { background-color: #0d1117; color: #ffffff; }"
+}}%%
 graph TD
     A[Start: Requester Posts Job] -->|API Call| B(Job 'pending_bids');
     B -- Runner Clicks 'Apply' --> C[Runner added to Applicants];
@@ -47,11 +61,13 @@ graph TD
 
     G --> H[Runner's wallet balance updated];
     H --> I[Job moves to History];
+
+
 ```
 
 -----
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 ### Frontend (Client)
 
@@ -85,7 +101,7 @@ graph TD
 
 -----
 
-## 🚀 How Our Unique Features Work
+##  How Our Unique Features Work
 
 ### 1\. Live Location Tracking (The "WOW" Feature)
 
