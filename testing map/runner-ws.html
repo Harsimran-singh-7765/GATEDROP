@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Runner (WS)</title>
+  <style>
+    body{font-family:Inter,system-ui;padding:16px;display:flex;gap:16px;}
+    canvas{border:2px solid #111; image-rendering: pixelated;}
+  </style>
+</head>
+<body>
+  <div>
+    <canvas id="mapCanvas" width="800" height="600"></canvas>
+  </div>
+  <div>
+    <h3>Runner (WebSocket)</h3>
+    <div>Status: <span id="status">offline</span></div>
+    <button id="start">Start</button>
+    <button id="stop" disabled>Stop</button>
+    <div>Speed <input id="speed" type="range" min="100" max="1200" value="350"></div>
+    <pre id="log" style="max-height:300px;overflow:auto;background:#fafafa;padding:8px;border:1px solid #eee;"></pre>
+  </div>
+
+<script>
+const MAP_SRC = 'mapjiit.jpg';
+const WS_URL = 'ws://localhost:8080'; // change to your server
+const RUNNER_ID = 'runner-1';
+const RUNNER_TOKEN = 'run-token-1'; // demo token
+
+const canvas = document.getElementById('mapCanvas');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('start');
+const stopBtn = document.getElementById('stop');
+const speedInput = document.getElementById('speed');
+const logEl = document.getElementById('log');
+
+function log(msg){ logEl.textContent = `${new Date().toLocaleTimeString()} - ${msg}\n` + logEl.textContent; }
+
+let img = new Image(); img.src = MAP_SRC;
+let TILE = 16, cols=0, rows=0;
+let runner = { col:0, row:0, x:0, y:0, radius:6 };
+let interval = null;
+
+// WebSocket
+let ws = null;
+function connectWS(){
+  ws = new WebSocket(WS_URL);
+  ws.addEventListener('open', () => {
+    statusEl.textContent = 'connected';
+    // register as runner
+    ws.send(JSON.stringify({ type:'register', role:'runner', id: RUNNER_ID, token: RUNNER_TOKEN }));
+    log('WS open and registered');
+  });
+  ws.addEventListener('message', (ev) => {
+    try {
+      const m = JSON.parse(ev.data);
+      if(m.type === 'registered') log(`registered: ${m.role} ${m.id}`);
+      else if(m.type === 'pong') log('pong ' + m.t);
+      else log('msg: ' + ev.data);
+    } catch(e){ log('invalid msg'); }
+  });
+  ws.addEventListener('close', () => { statusEl.textContent = 'offline'; log('WS closed, reconnect in 1s'); setTimeout(connectWS,1000); });
+  ws.addEventListener('error', (e) => { log('WS error'); console.error(e); });
+}
+connectWS();
+
+img.onload = () => {
+  canvas.width = img.width; canvas.height = img.height;
+  cols = Math.floor(canvas.width / TILE);
+  rows = Math.floor(canvas.height / TILE);
+  placeRunner();
+  draw();
+};
+
+function placeRunner(){
+  runner.col = Math.floor(cols*0.2 + Math.random()*cols*0.6);
+  runner.row = Math.floor(rows*0.2 + Math.random()*rows*0.6);
+  runner.x = runner.col * TILE + TILE/2; runner.y = runner.row * TILE + TILE/2;
+  sendPos();
+  draw();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0);
+  drawGrid();
+  ctx.beginPath(); ctx.fillStyle='#00e5ff'; ctx.arc(runner.x, runner.y, runner.radius, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+}
+
+function drawGrid(){
+  ctx.save(); ctx.globalAlpha=0.08; ctx.strokeStyle='#000';
+  for(let x=0;x<=canvas.width;x+=TILE){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+  for(let y=0;y<=canvas.height;y+=TILE){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+  ctx.restore();
+}
+
+function stepRandom(){
+  const dirs = [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[1,-1],[-1,1],[1,1]];
+  const shuffled = dirs.sort(()=>Math.random()-0.5);
+  for(let d of shuffled){
+    const nc = runner.col + d[0], nr = runner.row + d[1];
+    if(nc>=0 && nc<cols && nr>=0 && nr<rows){
+      runner.col = nc; runner.row = nr;
+      runner.x = runner.col*TILE + TILE/2; runner.y = runner.row*TILE + TILE/2;
+      sendPos();
+      draw();
+      return;
+    }
+  }
+}
+
+function sendPos(){
+  const msg = { type:'pos', runnerId: RUNNER_ID, x: runner.x, y: runner.y, col: runner.col, row: runner.row, t: Date.now() };
+  if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  log('sent pos ' + runner.col + ',' + runner.row);
+}
+
+// controls
+startBtn.onclick = () => {
+  if(interval) clearInterval(interval);
+  interval = setInterval(stepRandom, parseInt(speedInput.value,10));
+  startBtn.disabled = true; stopBtn.disabled = false;
+};
+stopBtn.onclick = () => {
+  if(interval) clearInterval(interval); interval = null;
+  startBtn.disabled = false; stopBtn.disabled = true;
+};
+
+// keyboard
+window.addEventListener('keydown',(e)=>{ if(e.key===' ') { if(interval) stopBtn.click(); else startBtn.click(); }});
+</script>
+</body>
+</html>

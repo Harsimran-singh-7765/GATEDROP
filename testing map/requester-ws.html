@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Requester (WS)</title>
+  <style>
+    body{font-family:Inter,system-ui;padding:16px;display:flex;gap:16px;}
+    canvas{border:2px solid #111; image-rendering: pixelated;}
+    #controls{width:360px;}
+    .alert{background:#d63031;color:#fff;padding:8px;border-radius:6px;display:none;}
+  </style>
+</head>
+<body>
+  <div>
+    <canvas id="mapCanvas" width="800" height="600"></canvas>
+  </div>
+  <div id="controls">
+    <h3>Requester (WebSocket)</h3>
+    <div>Status: <span id="status">offline</span></div>
+    <div>Runner subscribed: <input id="subRunner" value="runner-1" /></div>
+    <div>Token: <input id="token" value="req-token-1" /></div>
+    <button id="subscribe">Subscribe</button>
+    <div class="alert" id="alertBox">ALERT: Runner entered restricted zone!</div>
+    <div>Trail length: <span id="trailLen">0</span></div>
+    <button id="clearZones">Clear restricted</button>
+  </div>
+
+<script>
+const MAP_SRC = 'mapjiit.jpg';
+const WS_URL = 'ws://localhost:8080';
+const REQUESTER_ID = 'requester-1'; // demo
+let ws = null;
+
+const canvas = document.getElementById('mapCanvas'), ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const subscribeBtn = document.getElementById('subscribe');
+const subInput = document.getElementById('subRunner');
+const tokenInput = document.getElementById('token');
+const alertBox = document.getElementById('alertBox');
+const trailLenEl = document.getElementById('trailLen');
+const clearZonesBtn = document.getElementById('clearZones');
+
+let img = new Image(); img.src = MAP_SRC;
+let TILE = 16;
+let runnerState = null;
+let trail = [];
+const TRAIL_MAX = 80;
+let restrictedZones = [];
+let isDrawing=false, startDraw=null;
+
+function connectWS(){
+  ws = new WebSocket(WS_URL);
+  ws.addEventListener('open', ()=> {
+    statusEl.textContent = 'connected';
+    // register as requester
+    ws.send(JSON.stringify({ type:'register', role:'requester', id: REQUESTER_ID, token: tokenInput.value }));
+  });
+  ws.addEventListener('message', (ev)=> {
+    try {
+      const msg = JSON.parse(ev.data);
+      if(msg.type === 'registered'){ console.log('registered', msg); }
+      else if(msg.type === 'pos'){
+        // a runner update forwarded by server
+        runnerState = { id: msg.runnerId, x: msg.x, y: msg.y, col: msg.col, row: msg.row, t: msg.t };
+        trail.unshift({x:msg.x, y:msg.y});
+        if(trail.length>TRAIL_MAX) trail.pop();
+        trailLenEl.textContent = trail.length;
+        checkRestricted(msg.x, msg.y);
+        drawAll();
+      } else {
+        console.log('msg', msg);
+      }
+    } catch(e){ console.error(e); }
+  });
+  ws.addEventListener('close', ()=> { statusEl.textContent='offline'; setTimeout(connectWS,1000); });
+  ws.addEventListener('error', (e)=> console.error(e));
+}
+connectWS();
+
+img.onload = ()=> { canvas.width = img.width; canvas.height = img.height; drawAll(); };
+
+function drawAll(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0);
+  drawGrid();
+  drawRestricted();
+  drawTrail();
+  if(runnerState) drawRunner();
+}
+
+function drawGrid(){ ctx.save(); ctx.globalAlpha=0.06; for(let x=0;x<=canvas.width;x+=TILE){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); } for(let y=0;y<=canvas.height;y+=TILE){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); } ctx.restore(); }
+function drawRestricted(){ ctx.save(); ctx.globalAlpha=0.28; ctx.fillStyle='#ff4757'; for(let z of restrictedZones) ctx.fillRect(z.x,z.y,z.w,z.h); ctx.restore(); }
+function drawTrail(){ if(trail.length===0) return; ctx.save(); ctx.globalAlpha=0.7; ctx.lineWidth=3; ctx.strokeStyle='#ffd166'; ctx.beginPath(); for(let i=0;i<trail.length;i++){ const p=trail[i]; if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); } ctx.stroke(); ctx.restore(); }
+function drawRunner(){ ctx.save(); ctx.beginPath(); ctx.fillStyle='#00e5ff'; ctx.arc(runnerState.x, runnerState.y, 8,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore(); }
+
+function checkRestricted(x,y){ for(let z of restrictedZones){ if(x>=z.x && x<=z.x+z.w && y>=z.y && y<=z.y+z.h){ alertBox.style.display='block'; return; } } alertBox.style.display='none'; }
+
+// subscribe button
+subscribeBtn.onclick = ()=> {
+  const runnerId = subInput.value.trim();
+  const token = tokenInput.value.trim();
+  if(!runnerId || !token) return alert('fill runner id & token');
+  // ask server to subscribe (server validates token)
+  ws.send(JSON.stringify({ type:'subscribe', requesterId: REQUESTER_ID, token, runnerId }));
+};
+
+// drawing restricted zones
+canvas.addEventListener('mousedown', (e)=> { isDrawing=true; const r=canvas.getBoundingClientRect(); startDraw={x:e.clientX-r.left, y:e.clientY-r.top}; });
+canvas.addEventListener('mousemove', (e)=> {
+  if(!isDrawing) return;
+  const r=canvas.getBoundingClientRect(); const cur={x:e.clientX-r.left, y:e.clientY-r.top};
+  drawAll();
+  ctx.save(); ctx.globalAlpha=0.28; ctx.fillStyle='#ff4757';
+  const x=Math.min(startDraw.x,cur.x), y=Math.min(startDraw.y,cur.y), w=Math.abs(cur.x-startDraw.x), h=Math.abs(cur.y-startDraw.y);
+  ctx.fillRect(x,y,w,h); ctx.restore();
+});
+canvas.addEventListener('mouseup', (e)=> {
+  if(!isDrawing) return; isDrawing=false;
+  const r=canvas.getBoundingClientRect(); const end={x:e.clientX-r.left, y:e.clientY-r.top};
+  const x=Math.min(startDraw.x,end.x), y=Math.min(startDraw.y,end.y), w=Math.abs(end.x-startDraw.x), h=Math.abs(end.y-startDraw.y);
+  if(w>6 && h>6){ restrictedZones.push({x,y,w,h}); drawAll(); }
+});
+clearZonesBtn.onclick = ()=> { restrictedZones=[]; drawAll(); };
+
+</script>
+</body>
+</html>
