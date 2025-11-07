@@ -2,126 +2,213 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Requester (WS)</title>
+  <title>Requester – Live Map Tracker</title>
   <style>
-    body{font-family:Inter,system-ui;padding:16px;display:flex;gap:16px;}
-    canvas{border:2px solid #111; image-rendering: pixelated;}
-    #controls{width:360px;}
-    .alert{background:#d63031;color:#fff;padding:8px;border-radius:6px;display:none;}
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0f0f0f;
+      color: #fff;
+      display: flex;
+      gap: 24px;
+      padding: 20px;
+    }
+    canvas {
+      border: 3px solid #222;
+      image-rendering: pixelated;
+      background: #151515;
+      border-radius: 10px;
+      box-shadow: 0 0 25px rgba(0,0,0,0.4);
+    }
+    #panel {
+      width: 330px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #start {
+      background: #0fb9b1;
+      color: #fff;
+    }
+    #stop {
+      background: #eb3b5a;
+      color: #fff;
+    }
+    input {
+      width: 100%;
+      padding: 6px;
+      border-radius: 6px;
+      border: none;
+      margin-top: 2px;
+    }
+    .info-box {
+      background: #1a1a1a;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #ccc;
+      box-shadow: inset 0 0 6px rgba(255,255,255,0.05);
+    }
   </style>
 </head>
 <body>
   <div>
     <canvas id="mapCanvas" width="800" height="600"></canvas>
   </div>
-  <div id="controls">
-    <h3>Requester (WebSocket)</h3>
+
+  <div id="panel">
+    <h2>Requester Dashboard</h2>
     <div>Status: <span id="status">offline</span></div>
-    <div>Runner subscribed: <input id="subRunner" value="runner-1" /></div>
-    <div>Token: <input id="token" value="req-token-1" /></div>
-    <button id="subscribe">Subscribe</button>
-    <div class="alert" id="alertBox">ALERT: Runner entered restricted zone!</div>
-    <div>Trail length: <span id="trailLen">0</span></div>
-    <button id="clearZones">Clear restricted</button>
+    <div>
+      Runner ID: <input id="subRunner" value="runner-1" />
+      Token: <input id="token" value="req-token-1" />
+    </div>
+    <div>
+      <button id="subscribe">Subscribe</button>
+      <button id="start">Start Tracking</button>
+      <button id="stop">Stop Tracking</button>
+    </div>
+    <div class="info-box" id="infoBox">
+      <div><strong>Runner:</strong> —</div>
+      <div><strong>Lat:</strong> —</div>
+      <div><strong>Lon:</strong> —</div>
+      <div><strong>Pixel:</strong> —</div>
+    </div>
   </div>
 
 <script>
-const MAP_SRC = 'mapjiit.jpg';
+const MAP_SRC = 'map.jpg';
 const WS_URL = 'ws://localhost:8080';
-const REQUESTER_ID = 'requester-1'; // demo
-let ws = null;
+const REQUESTER_ID = 'requester-1';
 
-const canvas = document.getElementById('mapCanvas'), ctx = canvas.getContext('2d');
+const geoRef = {
+  // approximate calibration for your test zone
+  latA: 28.610500, lonA: 77.208500, // top-left
+  latB: 28.608000, lonB: 77.213000, // bottom-right
+  xA: 0, yA: 0, xB: 800, yB: 600
+};
+
+function latLonToPixel(lat, lon) {
+  const { latA, lonA, latB, lonB, xA, yA, xB, yB } = geoRef;
+  const x = ((lon - lonA) / (lonB - lonA)) * (xB - xA) + xA;
+  const y = ((latA - lat) / (latA - latB)) * (yB - yA) + yA;
+  return { x, y };
+}
+
+const canvas = document.getElementById('mapCanvas');
+const ctx = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
 const subscribeBtn = document.getElementById('subscribe');
 const subInput = document.getElementById('subRunner');
 const tokenInput = document.getElementById('token');
-const alertBox = document.getElementById('alertBox');
-const trailLenEl = document.getElementById('trailLen');
-const clearZonesBtn = document.getElementById('clearZones');
+const startBtn = document.getElementById('start');
+const stopBtn = document.getElementById('stop');
+const infoBox = document.getElementById('infoBox');
 
-let img = new Image(); img.src = MAP_SRC;
-let TILE = 16;
+let img = new Image();
+img.src = MAP_SRC;
+let ws = null;
+let tracking = true;
 let runnerState = null;
 let trail = [];
-const TRAIL_MAX = 80;
-let restrictedZones = [];
-let isDrawing=false, startDraw=null;
 
-function connectWS(){
+function connectWS() {
   ws = new WebSocket(WS_URL);
-  ws.addEventListener('open', ()=> {
+  ws.onopen = () => {
     statusEl.textContent = 'connected';
-    // register as requester
-    ws.send(JSON.stringify({ type:'register', role:'requester', id: REQUESTER_ID, token: tokenInput.value }));
-  });
-  ws.addEventListener('message', (ev)=> {
-    try {
-      const msg = JSON.parse(ev.data);
-      if(msg.type === 'registered'){ console.log('registered', msg); }
-      else if(msg.type === 'pos'){
-        // a runner update forwarded by server
-        runnerState = { id: msg.runnerId, x: msg.x, y: msg.y, col: msg.col, row: msg.row, t: msg.t };
-        trail.unshift({x:msg.x, y:msg.y});
-        if(trail.length>TRAIL_MAX) trail.pop();
-        trailLenEl.textContent = trail.length;
-        checkRestricted(msg.x, msg.y);
-        drawAll();
-      } else {
-        console.log('msg', msg);
-      }
-    } catch(e){ console.error(e); }
-  });
-  ws.addEventListener('close', ()=> { statusEl.textContent='offline'; setTimeout(connectWS,1000); });
-  ws.addEventListener('error', (e)=> console.error(e));
+    ws.send(JSON.stringify({
+      type: 'register',
+      role: 'requester',
+      id: REQUESTER_ID,
+      token: tokenInput.value
+    }));
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'pos' && tracking) {
+      const pixel = latLonToPixel(msg.lat, msg.lon);
+      runnerState = { ...msg, ...pixel };
+      trail.unshift({ x: pixel.x, y: pixel.y });
+      if (trail.length > 120) trail.pop();
+      draw();
+      updateInfo(runnerState);
+    }
+  };
+  ws.onclose = () => statusEl.textContent = 'offline';
 }
 connectWS();
 
-img.onload = ()=> { canvas.width = img.width; canvas.height = img.height; drawAll(); };
-
-function drawAll(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(img,0,0);
-  drawGrid();
-  drawRestricted();
-  drawTrail();
-  if(runnerState) drawRunner();
-}
-
-function drawGrid(){ ctx.save(); ctx.globalAlpha=0.06; for(let x=0;x<=canvas.width;x+=TILE){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); } for(let y=0;y<=canvas.height;y+=TILE){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); } ctx.restore(); }
-function drawRestricted(){ ctx.save(); ctx.globalAlpha=0.28; ctx.fillStyle='#ff4757'; for(let z of restrictedZones) ctx.fillRect(z.x,z.y,z.w,z.h); ctx.restore(); }
-function drawTrail(){ if(trail.length===0) return; ctx.save(); ctx.globalAlpha=0.7; ctx.lineWidth=3; ctx.strokeStyle='#ffd166'; ctx.beginPath(); for(let i=0;i<trail.length;i++){ const p=trail[i]; if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); } ctx.stroke(); ctx.restore(); }
-function drawRunner(){ ctx.save(); ctx.beginPath(); ctx.fillStyle='#00e5ff'; ctx.arc(runnerState.x, runnerState.y, 8,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore(); }
-
-function checkRestricted(x,y){ for(let z of restrictedZones){ if(x>=z.x && x<=z.x+z.w && y>=z.y && y<=z.y+z.h){ alertBox.style.display='block'; return; } } alertBox.style.display='none'; }
-
-// subscribe button
-subscribeBtn.onclick = ()=> {
-  const runnerId = subInput.value.trim();
-  const token = tokenInput.value.trim();
-  if(!runnerId || !token) return alert('fill runner id & token');
-  // ask server to subscribe (server validates token)
-  ws.send(JSON.stringify({ type:'subscribe', requesterId: REQUESTER_ID, token, runnerId }));
+subscribeBtn.onclick = () => {
+  ws.send(JSON.stringify({
+    type: 'subscribe',
+    requesterId: REQUESTER_ID,
+    token: tokenInput.value,
+    runnerId: subInput.value
+  }));
 };
 
-// drawing restricted zones
-canvas.addEventListener('mousedown', (e)=> { isDrawing=true; const r=canvas.getBoundingClientRect(); startDraw={x:e.clientX-r.left, y:e.clientY-r.top}; });
-canvas.addEventListener('mousemove', (e)=> {
-  if(!isDrawing) return;
-  const r=canvas.getBoundingClientRect(); const cur={x:e.clientX-r.left, y:e.clientY-r.top};
-  drawAll();
-  ctx.save(); ctx.globalAlpha=0.28; ctx.fillStyle='#ff4757';
-  const x=Math.min(startDraw.x,cur.x), y=Math.min(startDraw.y,cur.y), w=Math.abs(cur.x-startDraw.x), h=Math.abs(cur.y-startDraw.y);
-  ctx.fillRect(x,y,w,h); ctx.restore();
-});
-canvas.addEventListener('mouseup', (e)=> {
-  if(!isDrawing) return; isDrawing=false;
-  const r=canvas.getBoundingClientRect(); const end={x:e.clientX-r.left, y:e.clientY-r.top};
-  const x=Math.min(startDraw.x,end.x), y=Math.min(startDraw.y,end.y), w=Math.abs(end.x-startDraw.x), h=Math.abs(end.y-startDraw.y);
-  if(w>6 && h>6){ restrictedZones.push({x,y,w,h}); drawAll(); }
-});
-clearZonesBtn.onclick = ()=> { restrictedZones=[]; drawAll(); };
+startBtn.onclick = () => {
+  tracking = true;
+  infoBox.style.border = "2px solid #0fb9b1";
+};
+stopBtn.onclick = () => {
+  tracking = false;
+  infoBox.style.border = "2px solid #eb3b5a";
+};
 
+img.onload = () => {
+  canvas.width = img.width;
+  canvas.height = img.height;
+  draw();
+};
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  drawTrail();
+  drawRunner();
+}
+
+function drawTrail() {
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = '#f9ca24';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  for (let i = 0; i < trail.length; i++) {
+    const p = trail[i];
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRunner() {
+  if (!runnerState) return;
+  ctx.beginPath();
+  ctx.shadowColor = '#00e5ff';
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = '#00e5ff';
+  ctx.arc(runnerState.x, runnerState.y, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+function updateInfo(s) {
+  infoBox.innerHTML = `
+    <div><strong>Runner:</strong> ${s.runnerId}</div>
+    <div><strong>Lat:</strong> ${s.lat.toFixed(6)}</div>
+    <div><strong>Lon:</strong> ${s.lon.toFixed(6)}</div>
+    <div><strong>Pixel:</strong> (${s.x.toFixed(1)}, ${s.y.toFixed(1)})</div>
+  `;
+}
 </script>
 </body>
 </html>
