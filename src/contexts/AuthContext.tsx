@@ -1,10 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { authApi } from '@/lib/api'; // <-- api.ts se import karein
 
-// --- UPDATED USER INTERFACE ---
 interface User {
-  _id: string;
+  _id: string; 
   name: string;
   email: string;
   phone: string;
@@ -14,37 +12,29 @@ interface User {
   gigsPostedAsRequester: number;
   reportCount: number;
   isBanned: boolean;
-
-  // Naye fields rating aur payout ke liye
-  totalRatingStars: number;
-  totalRatingCount: number;
-  upiId?: string;
-  bankAccount?: {
-    accountNumber?: string;
-    ifsc?: string;
-    beneficiaryName?: string;
-  };
+  upiId?: string; // UPI ID Add kiya
+  totalRatingStars: number; // Rating fields
+  totalRatingCount: number; // Rating fields
 }
-// --- END UPDATE ---
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   socket: Socket | null;
+  isLoading: boolean; // <-- NAYA STATE
   login: (email: string, password: string) => Promise<void>;
   signup: (data: SignupData) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
 
-// SignupData ko OTP ke saath update karein
 interface SignupData {
   name: string;
   email: string;
   phone: string;
   password: string;
   collegeId?: string;
-  otp?: string; // OTP ab signup ka part hai
+  otp?: string; // OTP verification ke liye
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -52,19 +42,24 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null); 
+  const [isLoading, setIsLoading] = useState(true); // <-- 1. Loading ko true se start karo
 
   useEffect(() => {
-    // 1. LocalStorage se Load karein
-    const savedToken = localStorage.getItem('authToken');
-    const savedUser = localStorage.getItem('user');
-
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
+    try {
+      const savedToken = localStorage.getItem('authToken');
+      const savedUser = localStorage.getItem('user');
+      
+      if (savedToken && savedUser) {
+        setToken(savedToken);
+        setUser(JSON.parse(savedUser));
+      }
+    } catch (error) {
+      console.error("Failed to load auth state from local storage", error);
+    } finally {
+      setIsLoading(false); // <-- 2. Jab check complete ho, loading ko false karo
     }
 
-    // 2. Cross-tab logout listener
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'authToken' && event.newValue === null) {
         console.log("Auth token removed from other tab. Logging out.");
@@ -75,27 +70,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
     };
-    window.addEventListener('storage', handleStorageChange);
 
-    // 3. Cleanup
+    window.addEventListener('storage', handleStorageChange);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, []);
+  }, []); // Yeh effect sirf ek baar chalta hai
 
   // Socket connection effect
   useEffect(() => {
     if (token) {
-      const newSocket = io(import.meta.env.VITE_API_URL || '');
-      setSocket(newSocket);
+      const newSocket = io(import.meta.env.VITE_API_URL || ''); 
+      setSocket(newSocket); 
 
-      newSocket.on('connect', () => {
-        console.log('[Socket] Connected to backend:', newSocket.id);
-      });
-
-      newSocket.on('disconnect', () => {
-        console.log('[Socket] Disconnected from backend');
-      });
+      newSocket.on('connect', () => console.log('[Socket] Connected to backend:', newSocket.id));
+      newSocket.on('disconnect', () => console.log('[Socket] Disconnected from backend'));
 
       return () => {
         newSocket.disconnect();
@@ -108,24 +97,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [token]);
 
-  // --- api.ts ko use karne ke liye UPDATED ---
+  // ... (login function) ...
   const login = async (email: string, password: string) => {
-    const data = await authApi.login(email, password); // api.ts use karein
+    const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Login failed');
+    }
+    const data = await response.json();
     setToken(data.token);
     setUser(data.user);
     localStorage.setItem('authToken', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
   };
 
-  // --- api.ts ko use karne ke liye UPDATED ---
+  // ... (signup function) ...
   const signup = async (signupData: SignupData) => {
-    const data = await authApi.signup(signupData); // api.ts use karein
+    const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(signupData),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Signup failed');
+    }
+    const data = await response.json();
     setToken(data.token);
     setUser(data.user);
     localStorage.setItem('authToken', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
   };
-
+  
+  // ... (logout function) ...
   const logout = () => {
     setToken(null);
     setUser(null);
@@ -134,16 +142,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('user');
   };
 
-  // --- api.ts ko use karne ke liye UPDATED ---
   const refreshUser = async () => {
     if (!token) return;
-    const userData = await authApi.getMe(token); // api.ts use karein
-    setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/me`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const userData = await response.json();
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+      } else {
+        // Token invalid ho gaya hai
+        logout();
+      }
+    } catch (error) {
+      console.error("Failed to refresh user", error);
+      logout();
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, socket, login, signup, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, token, socket, isLoading, login, signup, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { Wallet, Briefcase, User as UserIcon, Mail, Phone, AlertTriangle, Star, StarHalf } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react"; // <-- Make sure useEffect is imported
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,15 +25,26 @@ import { cn } from "@/lib/utils";
 // --- Re-usable Star Rating Component ---
 const StarRating = ({ rating, count }: { rating: number, count: number }) => {
   // Handle 0 or undefined count
-  if (!count || count === 0) {
-    return <span className="text-sm text-muted-foreground">No ratings yet</span>;
+  const safeCount = count || 0;
+  const safeRating = rating || 0;
+
+  if (safeCount === 0) {
+    // Show 5 empty stars if no ratings
+    return (
+      <div className="flex items-center gap-1">
+        {[...Array(5)].map((_, i) => (
+          <Star key={`empty-${i}`} className="h-5 w-5 text-gray-300" />
+        ))}
+        <span className="text-sm text-muted-foreground ml-1">(0)</span>
+      </div>
+    );
   }
 
   // Ensure rating is a number
   const numRating = rating || 0;
 
   // Calculate average and clamp it between 0 and 5
-  let avgRating = (numRating / count);
+  let avgRating = (numRating / safeCount);
   avgRating = Math.max(0, Math.min(5, avgRating)); // Safety clamp
 
   const fullStars = Math.floor(avgRating);
@@ -46,8 +57,8 @@ const StarRating = ({ rating, count }: { rating: number, count: number }) => {
     <div className="flex items-center gap-1">
       {[...Array(fullStars)].map((_, i) => <Star key={`full-${i}`} className="h-5 w-5 text-yellow-500" fill="currentColor" />)}
       {halfStar && <StarHalf key="half" className="h-5 w-5 text-yellow-500" fill="currentColor" />}
-      {[...Array(emptyStars)].map((_, i) => <Star key={`empty-${i}`} className="h-5 w-5 text-yellow-300/70" fill="currentColor" />)}
-      <span className="text-sm text-muted-foreground ml-1">({count})</span>
+      {[...Array(emptyStars)].map((_, i) => <Star key={`empty-${i}`} className="h-5 w-5 text-gray-300" />)}
+      <span className="text-sm text-muted-foreground ml-1">({safeCount})</span>
     </div>
   );
 };
@@ -55,16 +66,43 @@ const StarRating = ({ rating, count }: { rating: number, count: number }) => {
 
 
 const Profile = () => {
-  const { user, token, refreshUser } = useAuth();
+  const { user, token, refreshUser, socket } = useAuth(); // <-- Get socket from context
   const { toast } = useToast();
   const [cashoutAmount, setCashoutAmount] = useState(0);
   const [upiId, setUpiId] = useState(user?.upiId || "");
   const [isUpiLoading, setIsUpiLoading] = useState(false);
   const minCashout = 100;
 
+  // --- YEH HAI SOCKET.IO FIX ---
+  // Listen for instant rating updates
+  useEffect(() => {
+    if (!socket || !user) return;
+
+    const handleRatingUpdate = (data: { 
+      userId: string, 
+      totalRatingStars: number,
+      totalRatingCount: number
+    }) => {
+      // Check if this update is for the current user
+      if (data.userId === user._id) {
+        console.log('[Socket] Rating update received!');
+        refreshUser(); // Refresh user data to get new rating stats
+        toast({ title: "You received a new rating!" });
+      }
+    };
+
+    // Listen for the event from the backend
+    socket.on('user_rating_updated', handleRatingUpdate);
+
+    // Cleanup listener on component unmount
+    return () => {
+      socket.off('user_rating_updated', handleRatingUpdate);
+    };
+  }, [socket, user?._id, refreshUser, toast]); // Dependencies
+  // --- END SOCKET.IO FIX ---
+  
   if (!user) return null; // Component renders null while user is loading
 
-  // Ensure default values for rendering, even if user object is incomplete
   const balance = user.walletBalance ? user.walletBalance.toFixed(2) : '0.00';
   const displayWalletBalance = parseFloat(balance);
 

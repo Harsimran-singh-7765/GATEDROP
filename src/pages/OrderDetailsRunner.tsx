@@ -30,7 +30,7 @@ const OrderDetailsRunner = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // --- Geolocation Tracking Effect ---
+  // --- Geolocation Tracking Effect (UPDATED) ---
   useEffect(() => {
     let watchId: number | null = null;
 
@@ -42,22 +42,24 @@ const OrderDetailsRunner = () => {
           const { latitude, longitude } = position.coords;
           console.log(`[GeoLocation] Got new coords: Lat: ${latitude}, Lon: ${longitude}`);
 
-          socket.emit('runner_location_update', {
-            jobId: id,
-            location: { lat: latitude, lon: longitude }
-          });
+          if (socket.connected) { // Check if socket is still connected
+            socket.emit('runner_location_update', {
+              jobId: id,
+              location: { lat: latitude, lon: longitude }
+            });
+          }
         },
         (error) => {
           console.error("Error watching position:", error);
           toast({ title: "Location Error", description: "Could not get your location.", variant: "destructive" });
         },
-        // --- YEH HAI FIX ---
+        // --- YEH HAIN QUICK FIXES ---
         { 
-          enableHighAccuracy: true, 
-          timeout:100, // 10000ms se 3000ms (3 seconds) kar diya
-          maximumAge: 0 
+          enableHighAccuracy: true, // Sabse accurate data (zaroori hai)
+          timeout: 100, 
+          maximumAge: 0 // Koi bhi purana (cached) data mat do, hamesha naya data do
         }
-        // --- END FIX ---
+        // --- END FIXES ---
       );
     }
 
@@ -67,7 +69,7 @@ const OrderDetailsRunner = () => {
         navigator.geolocation.clearWatch(watchId);
       }
     };
-  }, [job?.status, socket, id, toast]); 
+  }, [job?.status, socket, id, toast]);
   // --- END Geolocation Effect ---
 
   // Job data load karna
@@ -130,6 +132,7 @@ const OrderDetailsRunner = () => {
         title: "Status updated",
         description: "Job status has been updated successfully.",
       });
+      // Socket update karega, loadJob() ki zaroorat nahi
     } catch (error: any) {
       toast({
         title: "Failed to update status",

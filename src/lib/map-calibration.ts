@@ -62,6 +62,6 @@ export const LOCATION_COORDINATES: Record<string, { lat: number, lon: number }> 
     // "Gate 2": { lat: 28.6280, lon: 77.3714 },
     // "H3": { lat: 28.6282, lon: 77.3722 },
 
-    "default": { lat: 28.6308, lon: 77.3713 } // Default ko bhi update karein
+    "default": { lat: 0, lon: 0 } // Default ko bhi update karein
 };
 // -------------------------------------------

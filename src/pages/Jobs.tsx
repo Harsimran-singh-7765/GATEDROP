@@ -109,7 +109,7 @@ const Jobs = () => {
           }
           navigator.geolocation.getCurrentPosition(resolve, reject, {
             enableHighAccuracy: true,
-            timeout: 10000,
+            timeout: 1000,
             maximumAge: 0
           });
         });
