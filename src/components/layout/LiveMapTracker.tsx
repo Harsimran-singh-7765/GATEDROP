@@ -1,69 +1,80 @@
 import { Pin, Navigation } from "lucide-react";
-import { convertGpsToPercent, LOCATION_COORDINATES } from "@/lib/map-calibration";
-import React from "react";
+import { convertGpsToPercent } from "@/lib/map-calibration";
+import React, { useState } from "react";
 
 interface LiveMapProps {
     runnerLocation: { lat: number, lon: number } | null;
-    pickupLocation: string; // "Gate 2"
-    dropLocation: string;   // "H4"
+    // pickupLocation?: string; // Hata diya
+    // dropLocation?: string;   // Hata diya
 }
 
 export const LiveMapTracker: React.FC<LiveMapProps> = ({
     runnerLocation,
-    pickupLocation,
-    dropLocation
 }) => {
 
-    // Dictionary se coordinates nikalo
-    const pickupCoords = LOCATION_COORDINATES[pickupLocation] || LOCATION_COORDINATES["default"];
-    const dropCoords = LOCATION_COORDINATES[dropLocation] || LOCATION_COORDINATES["default"];
+    const [hoverCoords, setHoverCoords] = useState<{ x: number, y: number } | null>(null);
 
-    // Coordinates ko X/Y percentage mein convert karo
+    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const xPercent = (x / rect.width) * 100;
+        const yPercent = (y / rect.height) * 100;
+
+        setHoverCoords({ x: Math.round(xPercent), y: Math.round(yPercent) });
+    };
+
+    const handleMouseLeave = () => {
+        setHoverCoords(null);
+    };
+
     const runnerPos = runnerLocation ? convertGpsToPercent(runnerLocation.lat, runnerLocation.lon) : null;
-    const pickupPos = convertGpsToPercent(pickupCoords.lat, pickupCoords.lon);
-    const dropPos = convertGpsToPercent(dropCoords.lat, dropCoords.lon);
+
+    console.log("[MapTracker Debug]", {
+        Runner_GPS: runnerLocation,
+        Runner_XY_Percent: runnerPos,
+    });
 
     return (
-        <div className="w-full h-80 rounded-lg relative overflow-hidden border-2 border-primary bg-muted">
+        <div 
+            className="w-full h-[500px] rounded-lg relative overflow-hidden border-2 border-primary bg-muted"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+        >
             {/* Map Image Background */}
             <img
-                src="/college-map.png" // Yeh image public/college-map.png mein honi chahiye
+                src="/mapjiit.jpg" 
                 alt="College Map"
                 className="w-full h-full object-cover"
             />
 
-            {/* Pickup Point (Green) */}
-            <div
-                className="absolute"
-                style={{ left: `${pickupPos.x}%`, top: `${pickupPos.y}%`, transform: "translate(-50%, -100%)" }}
-                title={pickupLocation}
-            >
-                <Pin className="h-8 w-8 text-green-500" fill="currentColor" />
-            </div>
+            {/* Mouse Hover Debugger Overlay */}
+            {hoverCoords && (
+                <div 
+                    className="absolute top-2 left-2 bg-black/50 text-white p-2 rounded-lg text-xs font-mono"
+                    style={{ zIndex: 100 }}
+                >
+                    X: {hoverCoords.x}% <br />
+                    Y: {hoverCoords.y}%
+                </div>
+            )}
 
-            {/* Drop Point (Pink) */}
-            <div
-                className="absolute"
-                style={{ left: `${dropPos.x}%`, top: `${dropPos.y}%`, transform: "translate(-50%, -100%)" }}
-                title={dropLocation}
-            >
-                <Pin className="h-8 w-8 text-pink-500" fill="currentColor" />
-            </div>
-
-            {/* Runner's Live Position (Blue) */}
+            {/* Runner's Live Position (Blue Pin) */}
             {runnerPos && (
                 <div
-                    className="absolute transition-all duration-1000 ease-linear"
+                    // --- YEH HAI FIX ---
+                    // 'duration-1000' (1s) ko 'duration-300' (0.3s) kar diya
+                    className="absolute transition-all duration-300 ease-linear"
+                    // --- END FIX ---
                     style={{
                         left: `${runnerPos.x}%`,
                         top: `${runnerPos.y}%`,
-                        transform: "translate(-50%, -50%)"
+                        transform: "translate(-50%, -100%)" 
                     }}
                     title="Runner Location"
                 >
-                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center border-2 border-white shadow-lg">
-                        <Navigation className="h-4 w-4 text-white" fill="white" />
-                    </div>
+                    <Pin className="h-8 w-8 text-blue-500" fill="currentColor" />
                 </div>
             )}
         </div>

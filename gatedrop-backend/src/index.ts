@@ -16,6 +16,7 @@ import paymentRoutes from './routes/payment.routes';
 import adminRoutes from './routes/admin.routes'; 
 import { AuthRequest } from './middleware/auth.middleware';
 import walletRoutes from './routes/wallet.routes';
+
 // Check if JWT_SECRET is loaded
 if (!process.env.JWT_SECRET) {
   console.error("FATAL ERROR: JWT_SECRET is not defined in .env file");
@@ -25,16 +26,13 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// --- YEH HAI FIX ---
-// 1. Apne Vercel URL ko yahaan daalein
-const VERCEL_FRONTEND_URL = "https://gatedrop.vercel.app"; // <-- APNA VERCEL URL YAHAN DAALEIN
+// --- CORS FIX ---
+const VERCEL_FRONTEND_URL = "https://gatedrop.vercel.app"; 
 
-// 2. Localhost ports aur Vercel URL ko allow karein
 const allowedOrigins = [
   "http://localhost:5173", // Vite default
-  "http://localhost:8080", // Aapke docs waala port
+  "http://localhost:8080", // Your docs port
   VERCEL_FRONTEND_URL,     // Production frontend
-  // '0.0.0.0' or '*' is not used here for better security control
 ];
 // --- END FIX ---
 
@@ -44,7 +42,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins, 
-    methods: ["GET", "POST", "PATCH", "DELETE"], // DELETE bhi add karein
+    methods: ["GET", "POST", "PATCH", "DELETE"],
   },
 });
 // --- END Socket.io FIX ---
@@ -58,13 +56,27 @@ io.on("connection", (socket) => {
     socket.join(jobId);
   });
 
+  // --- YEH HAI NAYA CODE ---
+  // Runner se location receive karo aur Requester ko bhejo
+  socket.on('runner_location_update', (data) => {
+    const { jobId, location } = data;
+    
+    if (jobId && location) {
+      // Log it to the terminal
+      console.log(`[Socket IN] Location for Job ${jobId}:`, location);
+      // Relay it ONLY to the job room
+      io.to(jobId).emit('job_location_updated', location);
+    }
+  });
+  // --- END NAYA CODE ---
+
   socket.on("disconnect", () => {
     console.log(`[Socket] User disconnected: ${socket.id}`);
   });
 });
 
 // --- Express CORS ---
-app.use(cors({ origin: allowedOrigins })); // Sirf in URLs ko allow karo
+app.use(cors({ origin: allowedOrigins })); 
 // --- END Express CORS ---
 
 app.use(express.json()); // Parse JSON bodies
@@ -81,6 +93,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/wallet', walletRoutes);
+
 // Test route
 app.get('/', (req, res) => {
   res.send('Gatedrop Backend API is running! 🚀');

@@ -1,53 +1,67 @@
-// --- YAHI HAI AAPKA MAIN CALIBRATION ---
-// AAPKO YEH 4 VALUES GOOGLE MAPS SE DHOOND KAR REPLACE KARNI HAIN
-
+// --- YEH HAI AAPKA NAYA, ACCURATE CALIBRATION ---
+// Yeh values aapke Google Earth Pro screenshots se convert ki gayi hain.
 const MAP_BOUNDS = {
-    // Aapke 'college-map.png' ka TOP-LEFT kona
-    topLat: 28.6293,     // Example: JIIT Top-Left Latitude
-    leftLon: 77.3711,    // Example: JIIT Top-Left Longitude
+    // Aapke 'mapjiit.jpg' ka sabse UPAR ka point
+    topLat: 28.631217, 
 
-    // Aapke 'college-map.png' ka BOTTOM-RIGHT kona
-    bottomLat: 28.6275,  // Example: JIIT Bottom-Right Latitude
-    rightLon: 77.3738   // Example: JIIT Bottom-Right Longitude
+    // Aapke 'mapjiit.jpg' ka sabse LEFT ka point
+    leftLon: 77.370936,
+
+    // Aapke 'mapjiit.jpg' ka sabse NEECHE ka point
+    bottomLat: 28.629028, 
+
+    // Aapke 'mapjiit.jpg' ka sabse RIGHT ka point
+    rightLon: 77.374256
 };
 // ------------------------------------------
 
 /**
  * GPS (Lat, Lon) ko image par (X, Y) percentage mein convert karta hai.
+ * Yeh function ab aapke naye bounds ke saath sahi kaam karega.
  */
 export const convertGpsToPercent = (lat: number, lon: number) => {
     const { topLat, leftLon, bottomLat, rightLon } = MAP_BOUNDS;
-
-    // Kitna bada area hai
     const latRange = topLat - bottomLat;
     const lonRange = rightLon - leftLon;
 
-    // Position calculate karo (0 se 100 tak)
+    // Division by zero se bachne ke liye
+    if (latRange <= 0 || lonRange <= 0) {
+        console.error("MAP_BOUNDS calibration error: Range is zero.");
+        return { x: 0, y: 0 };
+    }
+
     const yPercent = ((topLat - lat) / latRange) * 100;
     const xPercent = ((lon - leftLon) / lonRange) * 100;
-
-    // Ensure karein ki value 0-100 ke beech rahe
+    
+    // Values ko 0-100 ke beech rakhein
     const y = Math.max(0, Math.min(100, yPercent));
     const x = Math.max(0, Math.min(100, xPercent));
-
+    
     return { x, y };
 };
 
-// --- YEH AAPKA LOCATION DICTIONARY HAI ---
-// Har important jagah ka (Lat, Lon) yahaan daalein
-// (Yeh values bhi Google Maps se milengi)
+
+// --- !! ATTENTION !! ---
+// Aapka 'super off' pink pin ka issue yahaan hai.
+// Aapke puraane LOCATION_COORDINATES ab is naye, calibrated map ke LIYE GALAT HAIN.
+// Aapko "Gate 1", "H4" etc. ke naye Lat/Lon dhoondne honge jo
+// is map area ke andar aate hain.
+//
+// EXAMPLE: Google Maps par jaayein, "H4" par right-click karein,
+// aur naye decimal coordinates (jaise 28.6295, 77.3728) ko yahaan update karein.
+// -----------------------
 
 export const LOCATION_COORDINATES: Record<string, { lat: number, lon: number }> = {
-    "Gate 1": { lat: 28.6290, lon: 77.3713 },
-    "Gate 2": { lat: 28.6280, lon: 77.3714 },
-    "H1": { lat: 28.6288, lon: 77.3720 },
-    "H2": { lat: 28.6285, lon: 77.3721 },
-    "H3": { lat: 28.6282, lon: 77.3722 },
-    "H4": { lat: 28.6279, lon: 77.3723 },
-    "Library": { lat: 28.6287, lon: 77.3730 },
-    "Cafeteria": { lat: 28.6284, lon: 77.3732 },
-    // ...baaki saari locations add karein
-    // Default value agar location na mile
-    "default": { lat: 28.6285, lon: 77.3725 }
+    // --- Yahaan nayi values daalein ---
+    "Gate 1": { lat: 28.6309, lon: 77.3712 }, // Example: Nayi value
+    "H4": { lat: 28.6300, lon: 77.3715 },     // Example: Nayi value
+    "Library": { lat: 28.6305, lon: 77.3716 }, // Example: Nayi value
+    "Cafeteria": { lat: 28.6303, lon: 77.3717 }, // Example: Nayi value
+    
+    // Purani values (ab galat hain):
+    // "Gate 2": { lat: 28.6280, lon: 77.3714 },
+    // "H3": { lat: 28.6282, lon: 77.3722 },
+
+    "default": { lat: 28.6308, lon: 77.3713 } // Default ko bhi update karein
 };
 // -------------------------------------------

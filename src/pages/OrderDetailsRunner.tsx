@@ -26,26 +26,67 @@ const OrderDetailsRunner = () => {
   const { id } = useParams();
   const [job, setJob] = useState<Job | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { token, socket } = useAuth(); // <-- Get socket
+  const { token, socket } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  // --- Geolocation Tracking Effect ---
+  useEffect(() => {
+    let watchId: number | null = null;
+
+    if (socket && id && (job?.status === 'accepted' || job?.status === 'picked_up')) {
+      console.log('[GeoLocation] Starting position watch...');
+      
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          console.log(`[GeoLocation] Got new coords: Lat: ${latitude}, Lon: ${longitude}`);
+
+          socket.emit('runner_location_update', {
+            jobId: id,
+            location: { lat: latitude, lon: longitude }
+          });
+        },
+        (error) => {
+          console.error("Error watching position:", error);
+          toast({ title: "Location Error", description: "Could not get your location.", variant: "destructive" });
+        },
+        // --- YEH HAI FIX ---
+        { 
+          enableHighAccuracy: true, 
+          timeout:100, // 10000ms se 3000ms (3 seconds) kar diya
+          maximumAge: 0 
+        }
+        // --- END FIX ---
+      );
+    }
+
+    return () => {
+      if (watchId) {
+        console.log('[GeoLocation] Stopping position watch.');
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, [job?.status, socket, id, toast]); 
+  // --- END Geolocation Effect ---
+
+  // Job data load karna
   useEffect(() => {
     if (token && id) {
       loadJob();
     }
   }, [id, token]);
 
-  // Socket listener effect
+  // Socket se job updates sunna
   useEffect(() => {
-    if (!socket || !id) return;
+    if (!socket || !id) return; 
 
     socket.emit('join_job_room', id);
     console.log(`[Socket] Runner joining room: ${id}`);
 
     const handleJobUpdate = (updatedJob: Job) => {
       console.log('[Socket] Runner received job update:', updatedJob);
-      setJob(updatedJob);
+      setJob(updatedJob); 
 
       if (updatedJob.status === 'completed') {
         toast({
@@ -60,11 +101,11 @@ const OrderDetailsRunner = () => {
     return () => {
       socket.off('job_updated', handleJobUpdate);
     };
-  }, [id, socket]);
+  }, [id, socket, toast]);
 
   const loadJob = async () => {
     if (!token || !id) return;
-
+    
     try {
       setIsLoading(true);
       const data = await jobApi.getJobById(id, token);
@@ -89,7 +130,6 @@ const OrderDetailsRunner = () => {
         title: "Status updated",
         description: "Job status has been updated successfully.",
       });
-      // No loadJob() needed, socket will update
     } catch (error: any) {
       toast({
         title: "Failed to update status",
@@ -124,7 +164,7 @@ const OrderDetailsRunner = () => {
       <Button variant="ghost" onClick={() => navigate(-1)} className="mb-4">
         ← Back
       </Button>
-
+      
       <Card>
         <CardHeader>
           <div className="flex justify-between items-start">

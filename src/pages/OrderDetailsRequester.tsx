@@ -45,33 +45,44 @@ interface Job {
     phone: string;
   };
   createdAt: string;
-  applicants: Applicant[]; // Backend se populated data
-  ratingGiven: boolean; // Rating di ya nahi
-  runnerId?: string; // Runner ID
+  applicants: Applicant[];
+  ratingGiven: boolean;
+  runnerId?: string;
 }
 
-// --- Star Rating Component ---
-// --- Star Rating Component ---
-const StarRating = ({ rating, count }: { rating: number, count: number }) => {
-  if (count === 0) {
-    return <span className="text-sm text-muted-foreground">New Runner</span>;
+// --- Star Rating Component (FIXED) ---
+const StarRating = ({ rating, count }: { rating: number; count: number }) => {
+  const safeCount = count || 0;
+  const safeRating = rating || 0;
+
+  if (safeCount === 0) {
+    return (
+      <div className="flex items-center gap-1">
+        {[...Array(5)].map((_, i) => (
+          <Star key={`empty-${i}`} className="h-4 w-4 text-gray-300" />
+        ))}
+        <span className="text-xs text-muted-foreground ml-1">(0)</span>
+      </div>
+    );
   }
-  const avgRating = (rating / count);
+
+  const avgRating = safeRating / safeCount;
   const fullStars = Math.floor(avgRating);
-  const halfStar = avgRating - fullStars >= 0.5; // This is a boolean
-  const emptyStars = Math.max(0, 5 - fullStars - (halfStar ? 1 : 0));
+  const halfStar = avgRating - fullStars >= 0.5 ? 1 : 0;
+  const emptyStars = Math.max(0, 5 - fullStars - halfStar);
 
   return (
     <div className="flex items-center gap-1">
-      {[...Array(fullStars)].map((_, i) => <Star key={`full-${i}`} className="h-4 w-4 text-yellow-500" fill="currentColor" />)}
-
-      {/* FIX: halfStar ko 1 ya 0 mein convert kiya */}
-      {[...Array(halfStar ? 1 : 0)].map((_, i) => <Star key={`half-${i}`} className="h-4 w-4 text-yellow-500" fill="currentColor" />)}
-
-      {/* FIX: emptyStars ke liye key ko alag kiya */}
-      {[...Array(emptyStars)].map((_, i) => <Star key={`empty-${i}`} className="h-4 w-4 text-yellow-300/70" fill="currentColor" />)}
-
-      <span className="text-xs text-muted-foreground ml-1">({count})</span>
+      {[...Array(fullStars)].map((_, i) => (
+        <Star key={`full-${i}`} className="h-4 w-4 text-yellow-500" fill="currentColor" />
+      ))}
+      {halfStar === 1 && (
+        <StarHalf key="half" className="h-4 w-4 text-yellow-500" fill="currentColor" />
+      )}
+      {[...Array(emptyStars)].map((_, i) => (
+        <Star key={`empty-${i}`} className="h-4 w-4 text-gray-300" />
+      ))}
+      <span className="text-xs text-muted-foreground ml-1">({safeCount})</span>
     </div>
   );
 };
@@ -86,7 +97,7 @@ const OrderDetailsRequester = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [runnerLocation, setRunnerLocation] = useState<{ lat: number, lon: number } | null>(null);
-  const [rating, setRating] = useState(0); // Rating modal ke liye
+  const [rating, setRating] = useState(0);
 
   useEffect(() => {
     if (token && id) {
@@ -114,7 +125,6 @@ const OrderDetailsRequester = () => {
       }
     };
 
-    // --- Naye Socket Listeners ---
     const handleNewApplicant = (newApplicant: Applicant) => {
       console.log('[Socket] New applicant:', newApplicant);
       setApplicants(prev => [...prev, newApplicant]);
@@ -130,13 +140,12 @@ const OrderDetailsRequester = () => {
       console.log("[Socket] Received location update:", location);
       setRunnerLocation(location);
     };
-    // --- End Naye Listeners ---
 
     socket.on('job_updated', handleJobUpdate);
     socket.on('new_applicant', handleNewApplicant);
     socket.on('applicant_removed', handleApplicantRemoved);
     socket.on('job_location_updated', handleLocationUpdate);
-    socket.on('runner_reported', () => loadJob()); // Report hone par reload
+    socket.on('runner_reported', () => loadJob()); 
 
     return () => {
       socket.off('job_updated', handleJobUpdate);
@@ -170,9 +179,7 @@ const OrderDetailsRequester = () => {
   const handleChooseRunner = async (runnerId: string) => {
     if (!token || !id) return;
     try {
-      // API call choose karne ke liye
       await jobApi.chooseRunner(id, runnerId, token);
-      // Socket 'job_updated' event component ko re-render kar dega
     } catch (error: any) {
       toast({
         title: "Failed to assign runner",
@@ -187,12 +194,10 @@ const OrderDetailsRequester = () => {
     try {
       await jobApi.confirmDelivery(id, token);
       await refreshUser();
-      // Navigate na karein, rating modal dikhayein
       toast({
         title: "Delivery confirmed!",
         description: `Runner has been paid ₹${job?.fee}. Please rate your runner.`,
       });
-      // Socket 'job_updated' status ko 'completed' set kar dega
     } catch (error: any) {
       toast({
         title: "Failed to confirm",
@@ -210,7 +215,7 @@ const OrderDetailsRequester = () => {
         title: "Rating Submitted!",
         description: "Thank you for your feedback.",
       });
-      navigate("/history"); // Ab history par bhejein
+      navigate("/history");
     } catch (error: any) {
       toast({
         title: "Failed to submit rating",
@@ -244,8 +249,6 @@ const OrderDetailsRequester = () => {
   if (!job) {
     return <div>Job not found</div>;
   }
-
-  // --- RENDER LOGIC ---
 
   // RENDER 1: Job complete hai, rating bachi hai
   if (job.status === 'completed' && !job.ratingGiven) {
@@ -314,7 +317,6 @@ const OrderDetailsRequester = () => {
                       <div>
                         <span className="font-semibold">{app.name}</span>
                         <div className="flex items-center gap-2">
-                          {/* Rating aur Red Star (Report) dikhayein */}
                           <StarRating rating={app.totalRatingStars} count={app.totalRatingCount} />
                           {app.reportCount > 0 && (
                             <Badge variant="destructive" className="gap-1">
@@ -365,17 +367,18 @@ const OrderDetailsRequester = () => {
         </CardHeader>
         <CardContent className="space-y-6">
 
-          {/* Live Map */}
+          {/* --- YEH HAI FIX --- */}
+          {/* Map ko 'accepted' status par bhi dikhao */}
           {(job.status === 'accepted' || job.status === 'picked_up' || job.status === 'delivered_by_runner') && (
             <div className="space-y-2">
               <Label>Live Tracking</Label>
               <LiveMapTracker
                 runnerLocation={runnerLocation}
-                pickupLocation={job.pickupLocation}
-                dropLocation={job.dropLocation}
+                // pickupLocation aur dropLocation props hata diye
               />
             </div>
           )}
+          {/* --- END FIX --- */}
 
           {/* Pickup/Drop/Description/Fee */}
           <div className="grid md:grid-cols-2 gap-4">

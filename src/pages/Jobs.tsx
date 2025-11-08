@@ -82,11 +82,10 @@ const Jobs = () => {
     }
   };
 
-  // --- YEH HAI FIX (FUNCTION NAME AUR API CALL CHANGE HUA) ---
   const handleApplyForJob = async (jobId: string) => {
-    if (!token || !socket) return; // Socket ko bhi check karein
+    if (!token || !socket || !user) return;
 
-    if (user?.isBanned) {
+    if (user.isBanned) {
       toast({
         title: "Account Restricted",
         description: "Your account has been banned. You cannot apply for new jobs.",
@@ -95,39 +94,73 @@ const Jobs = () => {
       return;
     }
 
+    // --- YEH HAI NAYA TOAST MESSAGE ---
+    toast({
+      title: "Location Access Required",
+      description: "Please allow location access to apply for jobs. Your browser will prompt you.",
+    });
+    // --- END NAYA TOAST MESSAGE ---
+
     try {
-      // 'acceptJob' ki jagah 'applyForJob' use kiya
+      const getLocation = (): Promise<GeolocationPosition> => {
+        return new Promise((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error("Geolocation is not supported by your browser."));
+          }
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          });
+        });
+      };
+
+      await getLocation();
+      
+      toast({ title: "Location access granted. Applying for job..." }); // Success message for location
+
       await jobApi.applyForJob(jobId, token);
+      
       toast({
         title: "Application Sent!",
         description: "The requester has been notified. Check 'Current Jobs' for status.",
       });
 
-      // Socket room join karein
       socket.emit('join_job_room', jobId);
 
-      // Local state update karke button ko "Applied" dikhayein
       setJobs(prevJobs => prevJobs.map(job =>
-        job._id === jobId ? { ...job, applicants: [...job.applicants, user._id] } : job
+        job._2id === jobId ? { ...job, applicants: [...job.applicants, user._id] } : job
       ));
 
       navigate("/current-jobs");
+
     } catch (error: any) {
-      toast({
-        title: "Failed to apply",
-        description: error.message,
-        variant: "destructive",
-      });
+      if (error.code === 1) { // Error code 1 = PERMISSION_DENIED
+        toast({
+          title: "Location Permission Denied",
+          description: "You must allow location access to apply for jobs. Please check your browser/phone settings.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Failed to apply",
+          description: error.message || "Could not get your location. Please ensure GPS is on.",
+          variant: "destructive",
+        });
+      }
     }
   };
-  // --- END FIX ---
+
+  const hasApplied = (job: Job) => {
+    if (!user || !job.applicants) {
+      return false;
+    }
+    return job.applicants.includes(user._id);
+  };
 
   if (isLoading) {
     return <div>Loading available jobs...</div>;
   }
-
-  // Helper function check karne ke liye ki user apply kar chuka hai
-  const hasApplied = (job: Job) => job.applicants.includes(user!._id);
 
   return (
     <div>
@@ -190,16 +223,14 @@ const Jobs = () => {
                   </div>
                 )}
 
-                {/* --- YEH HAI BUTTON LOGIC FIX --- */}
                 <Button
                   className="w-full"
-                  onClick={() => handleApplyForJob(job._id)} // <-- Naya function
-                  disabled={user?.isBanned || hasApplied(job)} // Disable agar applied hai
+                  onClick={() => handleApplyForJob(job._id)} 
+                  disabled={user?.isBanned || hasApplied(job)} 
                 >
                   {hasApplied(job) ? "Applied" : "Apply for Job"}
                 </Button>
-                {/* --- END FIX --- */}
-
+                
               </CardContent>
             </Card>
           ))}
